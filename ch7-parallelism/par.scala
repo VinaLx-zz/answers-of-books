@@ -98,4 +98,43 @@ object Par {
         val lpl = as map (asyncF[A, List[A]](a ⇒ if (f(a)) List(a) else Nil))
         map(sequence(lpl))(_ flatten)
     }
+
+    /** ex7.11 */
+    def choiceN[A](n: Par[Int])(choices: List[Par[A]]): Par[A] = { es ⇒
+        val i = run(es)(n).get
+        run(es)(choices(i))
+    }
+
+    def choice[A](cond: Par[Boolean])(t: Par[A], f: Par[A]): Par[A] = {
+        choiceN(map(cond)(i ⇒ if (i) 1 else 0))(List(f, t))
+    }
+
+    /** ex7.12 */
+    def choiceMap[K, V](key: Par[K])(choices: Map[K, Par[V]]): Par[V] = { es ⇒
+        val k = run(es)(key).get
+        run(es)(choices(k))
+    }
+
+    /** ex7.13 */
+    def chooser[A, B](pa: Par[A])(choices: A ⇒ Par[B]): Par[B] = { es ⇒
+        val a = run(es)(pa).get
+        run(es)(choices(a))
+    }
+
+    def choice2[A](cond: Par[Boolean])(t: Par[A], f: Par[A]): Par[A] = {
+        chooser(cond)(b ⇒ if (b) t else f)
+    }
+
+    def choiceN2[A](n: Par[Int])(choices: List[Par[A]]): Par[A] = {
+        chooser(n)(n ⇒ choices(n))
+    }
+
+    /** ex7.14 Requirement: join use chooser, flatMap(chooser) use join*/
+    def join[A](a: Par[Par[A]]): Par[A] = {
+        chooser(a)(a ⇒ a)
+    }
+
+    def flatMap[A, B](pa: Par[A])(f: A ⇒ Par[B]): Par[B] = {
+        join(map(pa)(f))
+    }
 }
