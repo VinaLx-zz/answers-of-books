@@ -60,4 +60,60 @@ object Par {
                 }
             }
     }
+
+    def map[A, B](pa: Par[A])(f: A ⇒ B): Par[B] = { es ⇒
+        new Future[B] {
+            def apply(callback: B ⇒ Unit) = {
+                pa(es) { a ⇒ eval(es) { callback(f(a)) } }
+            }
+        }
+    }
+
+    /** ex7.11 */
+    def choiceN[A](n: Par[Int])(choices: List[Par[A]]): Par[A] = { es ⇒
+        new Future[A] {
+            def apply(callback: A ⇒ Unit) {
+                eval(es)(n(es) { i ⇒ choices(i)(es)(callback) })
+            }
+        }
+    }
+
+    def choice[A](cond: Par[Boolean])(t: Par[A], f: Par[A]): Par[A] = {
+        choiceN(map(cond)(i ⇒ if (i) 1 else 0))(List(f, t))
+    }
+
+    /** ex7.12 */
+    def choiceMap[K, V](key: Par[K])(choices: Map[K, Par[V]]): Par[V] = { es ⇒
+        new Future[V] {
+            def apply(callback: V ⇒ Unit) {
+                eval(es)(key(es) { k ⇒ choices(k)(es)(callback) })
+            }
+        }
+    }
+
+    /** ex7.13 */
+    def chooser[A, B](pa: Par[A])(choices: A ⇒ Par[B]): Par[B] = { es ⇒
+        new Future[B] {
+            def apply(callback: B ⇒ Unit) {
+                eval(es)(pa(es) { a ⇒ choices(a)(es)(callback) })
+            }
+        }
+    }
+
+    def choice2[A](cond: Par[Boolean])(t: Par[A], f: Par[A]): Par[A] = {
+        chooser(cond)(b ⇒ if (b) t else f)
+    }
+
+    def choiceN2[A](n: Par[Int])(choices: List[Par[A]]): Par[A] = {
+        chooser(n)(n ⇒ choices(n))
+    }
+
+    /** ex7.14 Requirement: join use chooser, flatMap(chooser) use join*/
+    def join[A](a: Par[Par[A]]): Par[A] = {
+        chooser(a)(a ⇒ a)
+    }
+
+    def flatMap[A, B](pa: Par[A])(f: A ⇒ Par[B]): Par[B] = {
+        join(map(pa)(f))
+    }
 }
