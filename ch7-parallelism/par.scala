@@ -43,6 +43,10 @@ object Par {
         sequence(lp)
     }
 
+    def equal[A](lhs: Par[A], rhs: Par[A]): Par[Boolean] = {
+        map2(lhs, rhs)(_ == _)
+    }
+
     /** ex7.3 */
     private case class MapFuture[A, B, C](
         af: Future[A], bf: Future[B], f: (A, B) ⇒ C) extends Future[C] {
