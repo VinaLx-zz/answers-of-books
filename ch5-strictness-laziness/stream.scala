@@ -11,6 +11,15 @@ sealed trait Stream[+A] {
         case Cons(head, tail) ⇒ f(head(), tail().foldRight(z)(f))
     }
 
+    @annotation.tailrec
+    final def find(f: A ⇒ Boolean): Option[A] = this match {
+        case Empty ⇒ None
+        case Cons(h, t) ⇒ if (f(h())) Some(h()) else t().find(f)
+    }
+
+    // special case of `zipWith`
+    def zip[B](s2: Stream[B]): Stream[(A, B)] = zipWith(s2)((_, _))
+
     /** ex5.1 */
     def toList: List[A] = this match {
         case Empty ⇒ Nil
