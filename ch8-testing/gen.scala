@@ -3,8 +3,21 @@ package testing
 import functional_state._
 import NonNegativeLt.nonNegativeLessThan
 import NonNegativeInt.nonNegativeInt
+import parallelism.part1._
 
 case class Gen[+A](sample: State[RNG, A]) {
+    def map[B](f: A ⇒ B): Gen[B] = {
+        Gen[B](sample map (a ⇒ f(a)))
+    }
+
+    def map2[B, C](gb: Gen[B])(f: (A, B) ⇒ C): Gen[C] = {
+        Gen[C](sample.map2(gb.sample)(f))
+    }
+
+    def **[B](gb: Gen[B]): Gen[(A, B)] = {
+        map2(gb)(_ -> _)
+    }
+
     /** ex8.6 */
     def flatMap[B](f: A ⇒ Gen[B]): Gen[B] = {
         Gen[B](sample flatMap (a ⇒ f(a).sample))
@@ -55,4 +68,10 @@ object Gen {
 
     /** ex8.13 */
     def listOf1[A](g: Gen[A]): SGen[List[A]] = SGen(n ⇒ listOfN(1 max n, g))
+
+    /** ex8.16 open question */
+    def choosePar(start: Int, stopExclusive: Int): Gen[Par.Par[Int]] = {
+        choose(start, stopExclusive) map (i ⇒ Par.fork(Par.unit(i)))
+    }
+
 }

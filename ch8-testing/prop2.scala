@@ -4,12 +4,19 @@ package prop2
 import functional_state._
 import Prop._
 import strictness_laziness._
+import parallelism.part1._
+import Par._
+import java.util.concurrent._
 
 sealed trait Result {
     def isFalsified: Boolean
 }
 
 case object Passed extends Result {
+    def isFalsified = false
+}
+
+case object Proved extends Result {
     def isFalsified = false
 }
 
@@ -83,7 +90,21 @@ object Prop {
                 println(s"! Falsified after $n passed tests:\n $msg")
             case Passed ⇒
                 println(s"+ OK, passed $test_cases tests.")
+            case Proved ⇒
+                println(s"+ OK, proved property")
         }
+    }
+
+    def check(p: ⇒ Boolean): Prop = Prop { (_, _, _) ⇒
+        if (p) Proved else Falsified("()", 0)
+    }
+
+    def forAllPar[A](g: Gen[A])(f: A ⇒ Par[Boolean]): Prop = {
+        val s = Gen.weighted(
+            Gen.choose(1, 4).map[ExecutorService](
+                Executors.newFixedThreadPool) -> 0.75,
+            Gen.unit(Executors.newCachedThreadPool) -> 0.25)
+        forAll(s ** g) { case (es, a) ⇒ f(a)(es).get }
     }
 
     /** ex8.14 */
@@ -99,5 +120,12 @@ object Prop {
             }
         }
         run(prop, max_size = 50, test_cases = 100)
+    }
+
+    /** ex8.17 */
+    def ex8_17(): Unit = {
+        val p = forAllPar(Gen.choose(0, 100))(
+            a ⇒ Par.equal(unit(a), fork(unit(a))))
+        run(p)
     }
 }
