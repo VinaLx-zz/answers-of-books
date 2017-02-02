@@ -32,6 +32,10 @@ trait Parsers[PE, Parser[+_]] { self ⇒
 
     def flatMap[A, B](p: Parser[A])(f: A ⇒ Parser[B]): Parser[B]
 
+    def option[A](p: Parser[A]): Parser[Option[A]] = {
+        (p map (a ⇒ Some(a))) | succeed(None)
+    }
+
     /** ex9.1 */
     def map2[A, B, C](pa: Parser[A], pb: ⇒ Parser[B])(f: (A, B) ⇒ C) = {
         pa ** pb map { case (a, b) ⇒ f(a, b) }
@@ -77,7 +81,6 @@ trait Parsers[PE, Parser[+_]] { self ⇒
     }
 
     /** ex9.8 Requirement: use flatMap */
-
     def map[A, B](a: Parser[A])(f: A ⇒ B): Parser[B] = {
         flatMap(a)(a ⇒ succeed(f(a)))
     }
