@@ -55,7 +55,7 @@ trait Parsers[Parser[+_]] { self ⇒
 
     /** ex9.3 Requirement: use `or`, `map2`, `succeed` */
     def many[A](p: Parser[A]): Parser[List[A]] = {
-        map2(p, many(p))(_ :: _) or succeed(Nil)
+        attempt(map2(p, many(p))(_ :: _)) or succeed(Nil)
     }
 
     /** ex9.4 Requirement: use `map2`, `succeed` */

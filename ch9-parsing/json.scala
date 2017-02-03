@@ -50,9 +50,13 @@ object JsonParser {
             val items = spaceAround(p) ** many(item) map {
                 case (a, la) ⇒ a +: la.toIndexedSeq
             }
+            val res_items =
+                if (allow_last_seq)
+                    items ** option(spaceAround(conn)) map { case (l, _) ⇒ l }
+                else items
 
             val empty = spaces map (_ ⇒ IndexedSeq[A]())
-            attempt(items) or empty
+            attempt(res_items) or empty
         }
 
         val jbasic: Parser[Json] = jnum | jstring | jnull | jbool
@@ -110,10 +114,10 @@ object JsonParser {
 
     def testArray() = {
         println("")
-        val arr1 = "[1,2,3]"
+        val arr1 = "[1,2,3,]"
         var arr2 = " [ ] "
         val arr3 = " [ 1, \"what\", true]"
-        val arr4 = " [ [1, 2, false], [\"what\", null]]"
+        val arr4 = " [ [1, 2, false,], [\"what\", null]]"
         val result = for (arr ← Seq(arr1, arr2, arr3, arr4))
             yield MyParsers.run(parse(MyParsers))(arr)
         println(result.mkString("\n"))
@@ -129,9 +133,9 @@ object JsonParser {
             |   "one": {
             |       "two": 2,
             |       "three": {
-            |            "four": [4, 5, 6, 7]
+            |            "four": [4, 5, 6, 7],
             |       },
-            |       "five": [ { "six": 6 } ]
+            |       "five": [ { "six": 6 } ],
             |   }
             |}""".stripMargin
         val result = for (obj ← Seq(obj1, obj2, obj3, obj4))
