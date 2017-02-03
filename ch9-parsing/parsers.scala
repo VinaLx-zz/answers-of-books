@@ -3,9 +3,11 @@ package parsing
 import scala.language.implicitConversions
 import scala.util.matching._
 
-trait Parsers[PE, Parser[+_]] { self ⇒
+trait Parsers[Parser[+_]] { self ⇒
 
-    def run[A](p: Parser[A])(input: String): Either[PE, A]
+    import Parsers._
+
+    def run[A](p: Parser[A])(input: String): Either[ParseError, A]
 
     def or[A](s1: Parser[A], s2: ⇒ Parser[A]): Parser[A]
 
@@ -31,6 +33,12 @@ trait Parsers[PE, Parser[+_]] { self ⇒
     def slice[A](p: Parser[A]): Parser[String]
 
     def flatMap[A, B](p: Parser[A])(f: A ⇒ Parser[B]): Parser[B]
+
+    def errorLocation(e: ParseError): Location
+    def errorMessage(e: ParseError): String
+    def label[A](message: String)(p: Parser[A]): Parser[A]
+    def scope[A](message: String)(p: Parser[A]): Parser[A]
+    def attempt[A](p: Parser[A]): Parser[A]
 
     def option[A](p: Parser[A]): Parser[Option[A]] = {
         (p map (a ⇒ Some(a))) | succeed(None)
@@ -83,5 +91,32 @@ trait Parsers[PE, Parser[+_]] { self ⇒
     /** ex9.8 Requirement: use flatMap */
     def map[A, B](a: Parser[A])(f: A ⇒ B): Parser[B] = {
         flatMap(a)(a ⇒ succeed(f(a)))
+    }
+}
+
+object Parsers {
+    case class Location(input: String, offset: Int = 0) {
+        lazy val line = input.slice(0, offset + 1).count(_ == '\n') + 1
+        lazy val col = input.slice(0, offset + 1).lastIndexOf('\n') match {
+            case -1 ⇒ offset + 1
+            case lineStart ⇒ offset - lineStart
+        }
+
+        def advanceBy(n: Int): Location = copy(offset = offset + n)
+    }
+
+    case class ParseError(stack: List[(Location, String)]) {
+        def push(loc: Location, message: String): ParseError = {
+            copy(stack = (loc, message) :: stack)
+        }
+        def label[A](s: String): ParseError = {
+            ParseError(latestLoc.map((_, s)).toList)
+        }
+        def latestLoc: Option[Location] = {
+            latest map (_._1)
+        }
+        def latest: Option[(Location, String)] = {
+            stack.lastOption
+        }
     }
 }
