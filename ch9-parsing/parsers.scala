@@ -118,5 +118,10 @@ object Parsers {
         def latest: Option[(Location, String)] = {
             stack.lastOption
         }
+        override def toString = {
+            "ParseError:\n" +
+                (for ((loc, s) ← stack)
+                    yield s"Location: $loc; Message: $s").mkString("\n")
+        }
     }
 }

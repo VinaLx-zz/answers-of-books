@@ -58,17 +58,17 @@ object MyParser {
         /** ex9.13 */
         def getInput(loc: Location) = loc.input.slice(loc.offset, loc.input.size)
 
-        def string(s: String): Parser[String] = scope(s"Expect $s") { loc ⇒
+        def string(s: String): Parser[String] = scope(s"Expect `$s`") { loc ⇒
             val input = getInput(loc)
             if (input.startsWith(s)) Success[String](s, s.size)
-            else Failure(ParseError(List((loc, input))), true)
+            else Failure(ParseError(List((loc, input))), input.size != 0 && s(0) == input(0))
         }
 
         def regex(r: Regex): Parser[String] = { loc ⇒
             val input = getInput(loc)
             r.findPrefixOf(input) match {
                 case Some(s) ⇒ Success(s, s.size)
-                case None ⇒ Failure(ParseError(List((loc, input))), true)
+                case None ⇒ Failure(ParseError(List((loc, input))), false)
             }
         }
 
