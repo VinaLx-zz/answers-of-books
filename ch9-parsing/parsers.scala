@@ -2,6 +2,7 @@ package parsing
 
 import scala.language.implicitConversions
 import scala.util.matching._
+import scala.collection.immutable._
 
 trait Parsers[Parser[+_]] { self ⇒
 
@@ -105,22 +106,32 @@ object Parsers {
         def advanceBy(n: Int): Location = copy(offset = offset + n)
     }
 
-    case class ParseError(stack: List[(Location, String)]) {
+    /**
+     * ex9.18
+     * Open Problem: change the representation of error to get the error of the
+     * furthest match. I use queue instead of stack so that the innermost error
+     * can be obtained
+     */
+    case class ParseError(errors: Queue[(Location, String)]) {
         def push(loc: Location, message: String): ParseError = {
-            copy(stack = (loc, message) :: stack)
+            copy(errors = errors.enqueue((loc, message)))
         }
         def label[A](s: String): ParseError = {
-            ParseError(latestLoc.map((_, s)).toList)
+            ParseError(Queue(latestLoc.map((_, s)).toList: _*))
         }
         def latestLoc: Option[Location] = {
             latest map (_._1)
         }
         def latest: Option[(Location, String)] = {
-            stack.lastOption
+            errors.headOption
         }
+        def furtherThan(rhs: ParseError) = {
+            errors.head._1.offset > rhs.errors.head._1.offset
+        }
+
         override def toString = {
             "ParseError:\n" +
-                (for ((loc, s) ← stack)
+                (for ((loc, s) ← errors)
                     yield s"Location: $loc; Message: $s").mkString("\n")
         }
     }

@@ -2,6 +2,7 @@ package parsing
 
 import scala.util.matching._
 import scala.language.implicitConversions
+import scala.collection.immutable._
 
 object MyParser {
     import Parsers._
@@ -43,7 +44,9 @@ object MyParser {
 
         def or[A](x: Parser[A], y: ⇒ Parser[A]): Parser[A] = { s ⇒
             x(s) match {
-                case Failure(e, false) ⇒ y(s)
+                case Failure(xe, false) ⇒ y(s).mapError {
+                    ye ⇒ if (xe furtherThan ye) xe else ye
+                }
                 case r ⇒ r
             }
         }
@@ -61,14 +64,14 @@ object MyParser {
         def string(s: String): Parser[String] = scope(s"Expect `$s`") { loc ⇒
             val input = getInput(loc)
             if (input.startsWith(s)) Success[String](s, s.size)
-            else Failure(ParseError(List((loc, input))), input.size != 0 && s(0) == input(0))
+            else Failure(ParseError(Queue((loc, input))), input.size != 0 && s(0) == input(0))
         }
 
-        def regex(r: Regex): Parser[String] = { loc ⇒
+        def regex(r: Regex): Parser[String] = scope(s"Fail to match $r") { loc ⇒
             val input = getInput(loc)
             r.findPrefixOf(input) match {
                 case Some(s) ⇒ Success(s, s.size)
-                case None ⇒ Failure(ParseError(List((loc, input))), false)
+                case None ⇒ Failure(ParseError(Queue((loc, input))), false)
             }
         }
 
@@ -83,8 +86,8 @@ object MyParser {
         }
 
         /** ex9.15 */
-        def errorLocation(e: ParseError): Location = e.stack.head._1
-        def errorMessage(e: ParseError): String = e.stack.head._2
+        def errorLocation(e: ParseError): Location = e.errors.head._1
+        def errorMessage(e: ParseError): String = e.errors.head._2
 
         def run[A](p: Parser[A])(input: String): Either[ParseError, A] = p(Location(input, 0)) match {
             case Success(a, _) ⇒ Right(a)
