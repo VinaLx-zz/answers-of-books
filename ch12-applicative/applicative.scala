@@ -1,6 +1,7 @@
 package applicative
 
 import monad._
+import monoid._
 
 trait Applicative[F[_]] extends Functor[F] { self ⇒
     def map2[A, B, C](fa: F[A], fb: F[B])(f: (A, B) ⇒ C): F[C]
@@ -11,6 +12,18 @@ trait Applicative[F[_]] extends Functor[F] { self ⇒
     }
     def traverse[A, B](as: List[A])(f: A ⇒ F[B]): F[List[B]] = {
         as.foldRight[F[List[B]]](unit(Nil))((a, flb) ⇒ map2(f(a), flb)(_ :: _))
+    }
+
+    type Const[M, B] = M
+    def monoidApplicative[M](m: Monoid[M]) = {
+        new Applicative[({ type X[Y] = Const[M, Y] })#X] {
+            def unit[A](a: ⇒ A): Const[M, A] = m.zero
+            def map2[A, B, C](
+                m1: Const[M, A], m2: Const[M, B])(
+                    f: (A, B) ⇒ C): Const[M, C] = {
+                m.op(m1, m2)
+            }
+        }
     }
 
     /** ex12.1 */
