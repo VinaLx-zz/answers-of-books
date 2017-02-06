@@ -68,7 +68,6 @@ trait Monad[F[_]] extends Applicative[F] {
     def compose2[A, B, C](f: A ⇒ F[B])(g: B ⇒ F[C]): A ⇒ F[C] = {
         a ⇒ join(map(f(a))(g))
     }
-
 }
 
 case class Id[A](value: A)
@@ -135,5 +134,17 @@ object Monad {
             Id(f(ida.value))
         }
     }
+
+    /** ex12.20 */
+    def composeM[F[_], G[_]](
+        implicit mf: Monad[F], mg: Monad[G], tg: Traverse[G]) = {
+        new Monad[({ type X[Y] = F[G[Y]] })#X] {
+            def unit[A](a: ⇒ A): F[G[A]] = mf.unit(mg.unit(a))
+            def flatMap[A, B](fga: F[G[A]])(f: A ⇒ F[G[B]]): F[G[B]] = {
+                mf.flatMap(fga)(ga ⇒ mf.map(tg.traverse(ga)(f))(mg.join))
+            }
+        }
+    }
+
 }
 
