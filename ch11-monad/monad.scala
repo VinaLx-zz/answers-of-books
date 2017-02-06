@@ -12,27 +12,28 @@ trait Functor[F[_]] {
         }
 }
 
-trait Monad[F[_]] extends Functor[F] {
-    def unit[A](a: ⇒ A): F[A]
+import applicative._
+
+trait Monad[F[_]] extends Applicative[F] {
     def flatMap[A, B](ma: F[A])(f: A ⇒ F[B]): F[B]
-    def map[A, B](ma: F[A])(f: A ⇒ B): F[B] = {
+    override def map[A, B](ma: F[A])(f: A ⇒ B): F[B] = {
         flatMap(ma)(a ⇒ unit(f(a)))
     }
-    def map2[A, B, C](ma: F[A], mb: F[B])(f: (A, B) ⇒ C) = {
+    override def map2[A, B, C](ma: F[A], mb: F[B])(f: (A, B) ⇒ C) = {
         flatMap(ma)(a ⇒ map(mb)(b ⇒ f(a, b)))
     }
 
     /** ex11.3 */
-    def sequence[A](mas: List[F[A]]): F[List[A]] = {
+    override def sequence[A](mas: List[F[A]]): F[List[A]] = {
         // sugar for foldRight
         (mas :\ unit(Nil: List[A]))((ma, mla) ⇒ map2(ma, mla)(_ :: _))
     }
-    def traverse[A, B](as: List[A])(f: A ⇒ F[B]): F[List[B]] = {
+    override def traverse[A, B](as: List[A])(f: A ⇒ F[B]): F[List[B]] = {
         (as :\ unit(Nil: List[B]))((a, mlb) ⇒ map2(f(a), mlb)(_ :: _))
     }
 
     /** ex11.4 */
-    def replicateM[A](n: Int, ma: F[A]): F[List[A]] = {
+    override def replicateM[A](n: Int, ma: F[A]): F[List[A]] = {
         sequence(List.fill(n)(ma))
     }
 
