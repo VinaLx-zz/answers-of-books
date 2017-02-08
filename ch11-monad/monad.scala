@@ -72,13 +72,17 @@ trait Monad[F[_]] extends Applicative[F] {
 
 case class Id[A](value: A)
 
-import parallelism.part2._
+import parallelism.part1._
 import parsing.MyParser._
 
 object Monad {
+    implicit object Function0Monad extends Monad[Function0] {
+        def unit[A](a: ⇒ A) = () ⇒ a
+        def flatMap[A, B](fa: () ⇒ A)(f: A ⇒ () ⇒ B): () ⇒ B = f(fa())
+    }
 
     /** ex11.1 typing exercise :) */
-    object ParMonad extends Monad[Par.Par] {
+    implicit object ParMonad extends Monad[Par.Par] {
         import Par.Par
         def unit[A](a: ⇒ A): Par[A] = Par.unit(a)
         def flatMap[A, B](pa: Par[A])(f: A ⇒ Par[B]): Par[B] = {
