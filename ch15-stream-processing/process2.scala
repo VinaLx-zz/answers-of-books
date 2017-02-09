@@ -47,6 +47,12 @@ trait Process[F[_], O] {
         }
     }
 
+    final def drain[O2]: Process[F, O2] = this match {
+        case Halt(e) ⇒ Halt(e)
+        case Emit(h, t) ⇒ t.drain
+        case Await(req, recv) ⇒ Await(req, recv andThen (_.drain))
+    }
+
     /** ex15.10 */
     def runLog(implicit mcf: MonadCatch[F]): F[IndexedSeq[O]] = {
         def go(cur: Process[F, O], acc: F[IndexedSeq[O]]): F[IndexedSeq[O]] = {
@@ -86,9 +92,19 @@ object Process {
     }
 
     /** ex15.11 */
-    def eval[F[_], A](a: F[A]): Process[F, A] = ???
-    def eval_[F[_], A, B](a: F[A]): Process[F, B] = ???
+    def eval[F[_], A](a: F[A]): Process[F, A] = {
+        await(a) {
+            case Left(err) ⇒ Halt(err)
+            case Right(value) ⇒ Emit(value, Halt(End))
+        }
+    }
+
+    def eval_[F[_], A, B](a: F[A]): Process[F, B] = {
+        eval[F, A](a).drain[B]
+    }
 
     /** ex15.12 */
-    def join[F[_], O](p: Process[F, Process[F, O]]): Process[F, O] = ???
+    def join[F[_], O](p: Process[F, Process[F, O]]): Process[F, O] = {
+        p flatMap (o ⇒ o)
+    }
 }
