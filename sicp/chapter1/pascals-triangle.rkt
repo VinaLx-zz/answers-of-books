@@ -1,0 +1,23 @@
+#lang racket
+
+(provide triangle)
+
+(define (triangle n)
+  (define (triangle-impl last-layer n)
+    (define (next-layer cur-layer)
+      (define (next-layer-impl zero cur)
+        (if (empty? cur) (cons zero 0)
+            (let* ((res (next-layer-impl zero (cdr cur)))
+                   (last-val (cdr res))
+                   (acc (car res))
+                   (this-val (first cur)))
+                 (cons (list* (+ last-val this-val) acc) this-val))))
+        (list* 1 (car (next-layer-impl empty cur-layer))))
+  (define (print-layer layer)
+    (for-each (lambda n (printf "~a " n)) layer)
+    (newline))
+  (if (= n 0) (void)
+      (let ((cur (next-layer last-layer)))
+           (print-layer cur)
+           (triangle-impl cur (sub1 n)))))
+ (triangle-impl empty n))
