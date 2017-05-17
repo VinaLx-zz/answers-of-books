@@ -1,0 +1,56 @@
+#lang racket
+
+(provide (all-defined-out))
+
+(define (make-rat n d)
+  (define make-rat-impl cons)
+  (let ((factor (gcd n d)))
+    (make-rat-impl (/ n factor) (/ d factor))))
+
+(define numer car)
+(define denom cdr)
+
+(define (add-rat x y)
+  (let* ((x-num (numer x))
+         (x-denom (denom x))
+         (y-num (numer x))
+         (y-denom (denom y))
+         (new-denom (* x-denom y-denom))
+         (new-numer (+ (* x-denom y-num) (* x-num y-denom))))
+    (make-rat new-numer new-denom)))
+
+(define (sub-rat x y)
+  (let* ((x-num (numer x))
+         (x-denom (denom x))
+         (y-num (numer x))
+         (y-denom (denom y))
+         (new-denom (* x-denom y-denom))
+         (new-numer (- (* y-denom x-num) (* y-num x-denom))))
+    (make-rat new-numer new-denom)))
+
+(define (mul-rat x y)
+  (let* ((x-num (numer x))
+         (x-denom (denom x))
+         (y-num (numer x))
+         (y-denom (denom y))
+         (new-denom (* x-denom y-denom))
+         (new-numer (* x-num y-num)))
+    (make-rat new-numer new-denom)))
+
+(define (div-rat x y)
+  (let* ((x-num (numer x))
+         (x-denom (denom x))
+         (y-num (numer x))
+         (y-denom (denom y))
+         (new-denom (* x-denom y-num))
+         (new-numer (* x-num y-denom)))
+    (make-rat new-numer new-denom)))
+
+(define (equal-rat? x y)
+  (let* ((x-num (numer x))
+         (x-denom (denom x))
+         (y-num (numer x))
+         (y-denom (denom y)))
+    (= (* x-num y-denom) (* x-denom y-num))))
+
+(define (print-rat x) (printf "~a/~a\n" (numer x) (denom x)))
