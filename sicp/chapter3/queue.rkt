@@ -23,9 +23,9 @@
 (define (front-insert-queue! q x)
   (let ((new-pair (mcons x empty)))
     (if (empty-queue? q)
-      (set-front-ptr! q new-pair)
-      (set-mcdr! (rear-ptr q) new-pair))
-    (set-rear-ptr! q new-pair)
+      (set-rear-ptr! q new-pair)
+      (set-mcdr! new-pair (front-ptr q)))
+    (set-front-ptr! q new-pair)
     q))
 
 (define (rear-insert-queue! q x)
