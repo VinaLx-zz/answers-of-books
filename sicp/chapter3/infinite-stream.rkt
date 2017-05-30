@@ -7,7 +7,7 @@
 ; simple primitives that standard library lack
 
 (define (stream-take s n)
-  (if (<= n 0) empty-stream
+  (if (or (<= n 0) (stream-empty? s)) empty-stream
     (stream-cons (stream-first s) (stream-take (stream-rest s) (sub1 n)))))
 
 (define (display-stream s)
