@@ -150,3 +150,53 @@
 
 (define (exp-true? x) (not (eq? x false)))
 (define (exp-false? x) (eq? x false))
+
+(define (apply-primitive-procedure f args) (void))
+(define (primitive-procedure? f) (void))
+
+(define (make-procedure params body env)
+  (list 'procedure params body env))
+(define compound-procedure? (tagged-list? 'procedure))
+(define procedure-parameters cadr)
+(define procedure-body caddr)
+(define procedure-environment cadddr)
+
+
+(define enclosing-environment mcdr)
+(define first-frame mcar)
+(define empty-env empty)
+
+(define (make-frame vars vals)
+  (if (empty? vars) empty
+    (cons (mcons (car vars) (car vals))
+          (make-frame (cdr vars) (cdr vals)))))
+
+(define (extend-environment vars vals env)
+  (if (not (= (length vars) (length vals)))
+    (error 'extend-environment "variable and value don't match!")))
+    (mcons (make-frame vars vals) base-env)
+
+(define (lookup-in-frames var frame)
+  (if (empty? frame) false
+    (let ((kv (car frame)))
+      (if (eq? (mcar kv) var) kv
+        (lookup-in-frames (cdr frame))))))
+
+(define (lookup-variable var env)
+  (if (empty? env) false
+    (let ((kv (lookup-in-frames var (first-frame env))))
+      (if kv kv (lookup-variable var (mcdr env))))))
+
+(define (lookup-variable-value var env)
+  (let ((kv (lookup-variable var env)))
+    (if kv (mcdr kv) (error 'lookup-variable "unbound variable ~a" var))))
+
+(define (define-variable! var val env)
+  (let* ((frame (first-frame env))
+         (kv (lookup-in-frames var frame)))
+    (if kv (set-mcdr! kv val)
+      (set-mcar! env (cons (mcons var val) frame)))))
+
+(define (set-variable-value! var val env)
+  (let ((kv (lookup-variable var env)))
+    (if kv (set-mcdr! kv val) (error 'set-variable "unbound variable ~a" var))))
