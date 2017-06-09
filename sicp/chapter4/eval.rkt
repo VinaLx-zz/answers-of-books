@@ -20,21 +20,65 @@
         [(and-statement? expr) (eval-and expr env)]
         [(or-statement? expr) (eval-or expr env)]
         [(application? expr)
-         (my-apply (my-eval (operator expr) env)
-                   (list-of-values (operands expr) env))]
+         (my-apply (actual-value (operator expr) env)
+                   (operands expr) env)]
         [else (error 'my-eval "unknown expr: ~a" expr)]))
 
-(define (my-apply procedure arguments)
+(define (my-apply procedure arguments env)
   (cond [(primitive-procedure? procedure)
-         (apply-primitive-procedure procedure arguments)]
+         (apply-primitive-procedure
+           procedure
+           (list-of-arg-values arguments env))]
         [(compound-procedure? procedure)
+         (printf "; APPLIED ~a\n" arguments)
          (eval-sequence
            (procedure-body procedure)
            (extend-environment
              (procedure-parameters procedure)
-             arguments
+             (list-of-delayed-args arguments env)
              (procedure-environment procedure)))]
         [else (error 'my-apply "unknown procedure ~a" procedure)]))
+
+(define ((tagged-list? tag) expr)
+  (and (pair? expr) (eq? (car expr) tag)))
+
+(define ((tagged-mlist? tag) expr)
+  (and (mpair? expr) (eq? (mcar expr) tag)))
+
+(define (actual-value expr env)
+  (my-force (my-eval expr env)))
+
+(define my-thunk? (tagged-mlist? 'thunk))
+(define evaluated-thunk? (tagged-mlist? 'evaluated-thunk))
+
+(define (my-delay expr env)
+  (printf "; DELAYED ~a\n" expr)
+  (mcons 'thunk (mcons expr env)))
+(define (thunk-expr t) (mcar (mcdr t)))
+(define (thunk-env t) (mcdr (mcdr t)))
+(define (thunk-value t) (mcar (mcdr t)))
+
+(define (my-force object)
+  (cond [(my-thunk? object)
+         (let ([result
+               (actual-value (thunk-expr object) (thunk-env object))])
+           (printf "; FORCED ~a\n" (thunk-expr object))
+           (set-mcar! object 'evaluated-thunk)
+           (set-mcar! (mcdr object) result)
+           (set-mcdr! (mcdr object) empty)
+           result)]
+         [(evaluated-thunk? object) (thunk-value object)]
+         [else object]))
+
+(define (list-of-arg-values exprs env)
+  (if (no-operands? exprs) empty
+    (cons (actual-value (first-operand exprs) env)
+          (list-of-arg-values (rest-operand exprs) env))))
+
+(define (list-of-delayed-args exprs env)
+  (if (no-operands? exprs) empty
+    (cons (my-delay (first-operand exprs) env)
+          (list-of-delayed-args (rest-operand exprs) env))))
 
 (define (list-of-values exps env)
   (if (no-operands? exps) empty
@@ -42,7 +86,7 @@
       (cons first-value (list-of-values (rest-operand exps) env)))))
 
 (define (eval-if expr env)
-  (if (exp-true? (my-eval (if-predicate expr) env))
+  (if (exp-true? (actual-value (if-predicate expr) env))
     (my-eval (if-consequent expr) env)
     (my-eval (if-alternative expr) env)))
 
@@ -67,9 +111,6 @@
   (or (number? expr) (string? expr)))
 
 (define variable? symbol?)
-
-(define ((tagged-list? tag) expr)
-  (and (pair? expr) (eq? (car expr) tag)))
 
 (define quoted? (tagged-list? 'quote))
 (define text-of-quotation cadr)
@@ -146,7 +187,7 @@
 (define (eval-and expr env)
   (define (eval-and-impl exprs)
     (if (empty? exprs) true
-      (if (exp-true? (my-eval (car exprs) env))
+      (if (exp-true? (actual-value (car exprs) env))
         (eval-and-impl (cdr exprs))
         false)))
   (eval-and-impl (cdr expr)))
@@ -154,7 +195,7 @@
 (define (eval-or expr env)
   (define (eval-or-impl exprs)
     (if (empty? exprs) false
-      (if (exp-true? (my-eval (car exprs) env)) true
+      (if (exp-true? (actual-value (car exprs) env)) true
         (eval-or-impl (cdr exprs)))))
   (eval-or-impl (cdr expr)))
 
@@ -220,7 +261,8 @@
         `(+ ,+)
         `(- ,-)
         `(* ,*)
-        `(/ ,/)))
+        `(/ ,/)
+        `(= ,equal?)))
 
 (define (primitive-procedure-names) (map car primitive-procedures))
 (define (primitive-procedure-objects)
@@ -248,8 +290,7 @@
   (let* ([input (read)])
     (if (eq? input eof) (void)
       (begin
-        (displayln (my-eval input global-env))
-        ; (displayln global-env)
+        (displayln (actual-value input global-env))
         (driver-loop)))))
 
 (driver-loop)
