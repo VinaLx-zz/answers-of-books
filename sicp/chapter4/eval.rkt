@@ -1,6 +1,6 @@
 #lang racket
 
-(provide my-eval driver-loop)
+(provide (all-defined-out))
 
 (define (my-eval expr env)
   (cond [(self-evaluating? expr) expr]
