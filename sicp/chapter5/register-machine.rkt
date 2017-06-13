@@ -61,7 +61,7 @@
       (for-each (λ (op) (hash-set! ops (car op) (cadr op))) new-ops))
     (define (install-ins-seq seq) (set! instruction-seq seq))
     (define (execute)
-      (if (pc 'has-next)
+      (if (pc 'has-next?)
         (begin ((instruction-execution-proc (pc 'next-ins)))
                 (execute))
         'done))
@@ -100,7 +100,7 @@
     (define (goto dest)
       (set-contents pc dest)
       (call-all-callbacks))
-    (define (has-next)
+    (define (has-next?)
       ; (if (empty? (get-contents pc))
         ; (printf "empty!!\n")
         ; (printf "notempty!! ~a\n" (mcar (car (get-contents pc)))))
@@ -120,10 +120,11 @@
       (add-callback 'trace ins-printer))
     (define (trace-off)
       (remove-callback 'trace))
+    (define (at-symbol?) (symbol? (mcar (next-ins))))
     (define (dispatch msg . args)
       (case msg
         [(goto) (apply goto args)]
-        [(has-next) (has-next)]
+        [(has-next?) (has-next?)]
         [(increment) (increment)]
         [(add-callback) (apply add-callback args)]
         [(remove-callback) (apply remove-callback args)]
@@ -134,13 +135,14 @@
         [(trace-off) (trace-off)]
         [else 'pc "unknown request: ~a" msg]))
     (define (ins-printer pc)
-      (if (pc 'has-next)
+      (if (pc 'has-next?)
           (printf "pc: ~a\n" (mcar (pc 'next-ins)))
           (displayln "pc: done")))
     (define (ins-counter)
       (let ([counter 0])
         (λ (pc)
-          (if (pc 'has-next) (set! counter (add1 counter))
+          (if (pc 'has-next?)
+            (unless (at-symbol?) (set! counter (add1 counter)))
             (begin
              (printf "~a instructions executed\n" counter)
              (set! counter 0))))))
@@ -158,10 +160,12 @@
   (if (empty? text) (receive empty empty)
     (extract-labels (cdr text)
       (λ (insts labels)
-        (let ([next-inst (car text)])
+        (let* ([next-inst (car text)]
+               [new-insts (cons (make-instruction next-inst) insts)])
           (if (symbol? next-inst)
-            (receive insts (cons (make-label-entry next-inst insts) labels))
-            (receive (cons (make-instruction next-inst) insts) labels)))))))
+            (receive new-insts
+              (cons (make-label-entry next-inst new-insts) labels))
+            (receive new-insts labels)))))))
 
 (define (update-insts! insts labels machine)
   (let ([pc (get-pc machine)]
@@ -188,15 +192,18 @@
 
 (define (make-execution-procedure
           inst labels machine pc flag stack ops)
-  (case (car inst)
-    [(assign) (make-assign inst machine labels ops pc)]
-    [(test) (make-test inst machine labels ops flag pc)]
-    [(branch) (make-branch inst machine labels flag pc)]
-    [(goto) (make-goto inst machine labels pc)]
-    [(save) (make-save inst machine stack pc)]
-    [(restore) (make-restore inst machine stack pc)]
-    [(perform) (make-perform inst machine labels ops pc)]
-    [else (error 'make-execution-procedure "unknown instruction type: ~a" (car inst))]))
+  (if (symbol? inst) (make-label pc)
+    (case (car inst)
+      [(assign) (make-assign inst machine labels ops pc)]
+      [(test) (make-test inst machine labels ops flag pc)]
+      [(branch) (make-branch inst machine labels flag pc)]
+      [(goto) (make-goto inst machine labels pc)]
+      [(save) (make-save inst machine stack pc)]
+      [(restore) (make-restore inst machine stack pc)]
+      [(perform) (make-perform inst machine labels ops pc)]
+      [else (error 'make-execution-procedure "unknown instruction type: ~a" (car inst))])))
+
+(define (make-label pc) (λ () (pc 'increment)))
 
 (define (make-assign inst machine labels operations pc)
   (let* ([target (get-register machine (assign-reg-name inst))]
