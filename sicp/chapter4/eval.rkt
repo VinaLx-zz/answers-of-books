@@ -262,7 +262,9 @@
         `(- ,-)
         `(* ,*)
         `(/ ,/)
-        `(= ,equal?)))
+        `(= ,equal?)
+        `(< ,<)
+        `(> ,>)))
 
 (define (primitive-procedure-names) (map car primitive-procedures))
 (define (primitive-procedure-objects)
@@ -293,4 +295,4 @@
         (displayln (actual-value input global-env))
         (driver-loop)))))
 
-(driver-loop)
+; (driver-loop)

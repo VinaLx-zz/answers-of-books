@@ -1,6 +1,6 @@
 #lang racket
 
-(provide (all-defined-out))
+(provide (except-out (all-defined-out) tagged-list?))
 
 (define (make-machine registers ops controller)
   (let ([machine (make-new-machine)])
@@ -136,15 +136,15 @@
         [else 'pc "unknown request: ~a" msg]))
     (define (ins-printer pc)
       (if (pc 'has-next?)
-          (printf "pc: ~a\n" (mcar (pc 'next-ins)))
-          (displayln "pc: done")))
+          (printf "[PC-TRACE] ~s\n" (mcar (pc 'next-ins)))
+          (displayln "[PC-TRACE] done")))
     (define (ins-counter)
       (let ([counter 0])
         (λ (pc)
           (if (pc 'has-next?)
             (unless (at-symbol?) (set! counter (add1 counter)))
             (begin
-             (printf "~a instructions executed\n" counter)
+             (printf "[INSTRUCTION-COUNTER] ~a executed\n" counter)
              (set! counter 0))))))
     (add-callback 'counter (ins-counter))
     dispatch))
@@ -269,7 +269,7 @@
       (error 'make-perform "bad perform instruction: ~a" inst)
       (let ([action-proc
              (make-operation-expr action machine labels operations)])
-        (λ () (action-proc) (advance-pc))))))
+        (λ () (action-proc) (advance-pc pc))))))
 (define perform-action cdr)
 
 (define (make-primitive-expr expr machine labels)
