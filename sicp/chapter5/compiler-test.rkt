@@ -13,6 +13,12 @@
      (iter 1 1))
      (fact-iter 6)))
 
+(define datum2
+  '(begin
+    (define (fact-rec n)
+      (if (< n 2) n (* n (fact-rec (- n 1)))))
+    (fact-rec 6)))
+
 (define machine-ops
   (list
     (list 'lookup-variable-value lookup-variable-value)
@@ -62,3 +68,5 @@
 
 (define machine (make-compiled-machine datum))
 (start machine)
+(define machine2 (make-compiled-machine datum2))
+(start machine2)
