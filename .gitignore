@@ -1,0 +1,12 @@
+# scala
+*.class
+target
+
+# agda
+*.agdai
+*.vim
+
+# coq
+*.vo
+*.glob
+*.aux
