@@ -6,6 +6,8 @@ Import ListNotations.
 Require Import Bool.
 Require Import Omega.
 
+Require Import relation.
+
 Inductive reg_exp {T : Type} : Type :=
   | EmptySet
   | EmptyStr
@@ -209,22 +211,6 @@ Proof.
   induction sm_le_n as [| pn sm_le_pn IH].
   - apply le_S. apply le_n.
   - apply le_S. apply IH.
-Qed.
-
-Theorem plus_le_l : ∀ n m o : nat,
-  n + m ≤ o → n ≤ o.
-Proof.
-  induction m as [| m' IH].
-  - rewrite <- plus_n_O. intros. assumption.
-  - rewrite <- plus_n_Sm. intros o s_nm_le_o.
-    apply le_loose in s_nm_le_o.
-    apply IH. assumption.
-Qed.
-
-Theorem plus_le_r : ∀ n m o : nat,
-  n + m ≤ o → m ≤ o.
-Proof.
-  intros. rewrite add_comm in H. apply plus_le_l with n. assumption.
 Qed.
 
 Theorem plus_le_plus : ∀ a b c d : nat,

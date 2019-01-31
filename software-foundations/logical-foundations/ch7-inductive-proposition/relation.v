@@ -62,7 +62,7 @@ Proof.
     apply le_S. assumption.
 Qed.
 
-Theorem plus_le : forall n m o : nat,
+Theorem plus_le_l : forall n m o : nat,
   n + m ≤ o -> n ≤ o.
 Proof.
   induction m as [| m' IH].
@@ -72,12 +72,18 @@ Proof.
     apply IH. assumption.
 Qed.
 
+Theorem plus_le_r : ∀ n m o : nat,
+  n + m ≤ o → m ≤ o.
+Proof.
+  intros. rewrite add_comm in H. apply plus_le_l with n. assumption.
+Qed.
+
 Lemma plus_lt_l : forall n m o : nat,
   n + m < o -> n < o.
 Proof.
   unfold lt. simpl.
   (* S n + m ≤ o -> S n ≤ o *)
-  intros. apply plus_le with m. assumption.
+  intros. apply plus_le_l with m. assumption.
 Qed.
 
 Lemma plus_lt_r : forall n m o : nat,
