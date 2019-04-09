@@ -83,13 +83,12 @@ Theorem filter_subseq_longest :
 Proof.
   intros X p xs ys ss_ys_xs.
   induction ss_ys_xs as
-    [| x ys xs' ss_ys_xs' IH | x ys' xs' ss_ys'_xs' IH].
-  - intros. simpl. apply O_le_n.
-  - intros. simpl. apply IH in H. destruct (p x).
+    [| x ys xs' ss_ys_xs' IH | x ys' xs' ss_ys'_xs' IH]; intros; simpl.
+  - apply O_le_n.
+  - apply IH in H. destruct (p x).
     + simpl. apply le_S. assumption.
     + assumption.
-  - intros.
-    set (H0 := all_in_in_tail (λ y, p y = true) H).
+  - set (H0 := all_in_in_tail (λ y, p y = true) H).
     apply IH in H0.
     simpl. destruct (p x) eqn: E. simpl.
     + apply le_n_S. assumption.
@@ -108,27 +107,26 @@ Inductive Palindrome {X : Type} : list X → Prop :=
 Theorem app_rev_pal : ∀ {X : Type} {xs : list X},
   Palindrome (xs ++ rev xs).
 Proof.
-  induction xs as [| x xs' IH].
-  - simpl. constructor.
-  - simpl. rewrite app_assoc. apply pal_cat. apply IH.
+  induction xs as [| x xs' IH]; simpl.
+  - constructor.
+  - rewrite app_assoc. apply pal_cat. apply IH.
 Qed.
 
 Theorem rev_app_distr : ∀ {X : Type} {xs ys : list X},
   rev (xs ++ ys) = rev ys ++ rev xs.
 Proof.
-  induction xs as [| x xs' IH]; intros.
-  - simpl. rewrite app_nil_r. reflexivity.
-  - simpl. rewrite app_assoc. rewrite IH. reflexivity.
+  induction xs as [| x xs' IH]; intros; simpl.
+  - rewrite app_nil_r. reflexivity.
+  - rewrite app_assoc. rewrite IH. reflexivity.
 Qed.
 
 Theorem pal_rev_eq : ∀ {X : Type} {xs : list X},
   Palindrome xs → xs = rev xs.
 Proof.
   intros X xs pal.
-  induction pal as [| x | xs' x pal_xs' IH].
-  - reflexivity.
-  - reflexivity.
-  - simpl. rewrite rev_app_distr. rewrite <- IH. reflexivity.
+  induction pal as [ | | xs' x pal_xs' IH];
+  [> .. | simpl; rewrite rev_app_distr; rewrite <- IH];
+  reflexivity.
 Qed.
 
 Inductive ListConsSnocView {X : Type} : list X → Type :=
@@ -207,6 +205,5 @@ Proof.
       cut (¬ In x ys). intro. contradiction.
       unfold Disjoint. apply disj. simpl. left. reflexivity.
     + apply IH. assumption. unfold Disjoint. unfold Disjoint in disj.
-      set (H := all_in_in_tail (λ x, ¬ In x ys) disj). simpl in H.
-      apply H.
+      apply (all_in_in_tail (λ x, ¬ In x ys) disj).
 Qed.

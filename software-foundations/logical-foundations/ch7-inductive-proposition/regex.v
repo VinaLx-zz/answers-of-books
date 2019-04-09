@@ -47,9 +47,7 @@ Qed.
 Lemma MUnion' : ∀ T (s : list T) (re1 re2 : @reg_exp T),
   s =~ re1 ∨ s =~ re2 → s =~ Union re1 re2.
 Proof.
-  intros T s re1 re2 [s_m_re1 | s_m_re2].
-  - apply MUnionL. assumption.
-  - apply MUnionR. assumption.
+  intros T s re1 re2 [s_m_re1 | s_m_re2]; constructor; assumption.
 Qed.
 
 Theorem in_reduce : ∀ (T : Type) (P : T → Prop) (x : T) (xs : list T),
