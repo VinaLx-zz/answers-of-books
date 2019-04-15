@@ -58,11 +58,30 @@
     (Expression
       ("unpack" (arbno identifier) "=" Expression "in" Expression)
       Unpack)
+
+    ;; proc
+
+    ; ex 3.19
+    (Expression
+      ("letproc" identifier "(" (separated-list identifier ",") ")" Expression
+        "in" Expression)
+      Letproc)
+
+    ; ex 3.21
+    (Expression
+      ("proc" "(" (separated-list identifier ",") ")" Expression)
+      Proc)
+
+
+    (Expression ("(" Expression (arbno Expression) ")") Call)
   )
 )
 
 (sllgen:make-define-datatypes eopl:lex-spec let-syn-spec)
-(define parse (sllgen:make-stream-parser eopl:lex-spec let-syn-spec))
+(define parse (sllgen:make-string-parser eopl:lex-spec let-syn-spec))
+
+;; proc
+(struct Procedure (vars body env) #:transparent)
 
 (define-datatype expval expval?
   (num-val (num number?))
@@ -70,6 +89,9 @@
 
   ; ex 3.9.
   (list-val (l list?))
+
+  ;; proc
+  (proc-val (proc Procedure?))
 )
 
 (define (report-expval-extractor-error type value)
@@ -95,24 +117,31 @@
     (else (report-expval-extractor-error 'list val))
   )
 )
+
 (define (expval->val val)
   (cases expval val
     (num-val (n) n)
     (bool-val (b) b)
     (list-val (l) l)
+
+    ;; proc
+    (proc-val (p) p)
   )
 )
 
-(define (init-env)
-  (extend-env 'i (num-val 1)
-    (extend-env 'v (num-val 5)
-      (extend-env 'x (num-val 10)
-         (empty-env))))
+;; proc
+(define (expval->proc val)
+  (cases expval val
+    (proc-val (p) p)
+    (else (report-expval-extractor-error 'proc val))
+  )
 )
+
+(define (init-env) (empty-env))
 
 (define (value-of-program pgm)
   (cases Program pgm
-    (a-program (expr) (value-of expr (init-env)))
+    (a-program (expr) (expval->val (value-of expr (init-env))))
   )
 )
 
@@ -167,13 +196,7 @@
     ))
 
     ; ex 3.16
-    (Let (vars vals body)
-      (let
-        ((new-env
-          (extend-env* vars (map (λ (val) (value-of val env)) vals) env)))
-        (value-of body new-env)
-      )
-    )
+    (Let (vars vals body) (eval-let vars vals body env))
 
     ; ex 3.17
     (Let* (vars vals body)
@@ -196,8 +219,32 @@
         )
       )
     )
+
+    ;; proc
+
+    ; ex 3.19.
+    (Letproc (var params body expr)
+      (eval-let (list var) (list (make-procedure params body env)) expr env)
+    )
+
+    ; ex 3.21
+    (Proc (params body) (proc-val (make-procedure params body env)))
+
+    (Call (operator operands)
+      (let ((proc (expval->proc (value-of operator env)))
+            (args (map (λ (operand) (value-of operand env)) operands)))
+        (apply-procedure proc args)
+      )
+    )
   ) ; cases
 ) ; value-of
+
+(define (eval-let vars vals body env)
+  (let ((new-env
+      (extend-env* vars (map (λ (val) (value-of val env)) vals) env)))
+    (value-of body new-env)
+  )
+)
 
 (define (zip l1 l2)
   (if (or (null? l1) (null? l2)) null
@@ -229,4 +276,53 @@
   )
 )
 
-((sllgen:make-rep-loop "> " value-of-program parse))
+;; proc
+(define (apply-procedure p args)
+  (match p ((Procedure vars body env)
+    (if (not (equal? (length args) (length vars)))
+      (error 'apply-procedure
+        "procedure arity mismatch between ~a (formal args) and ~a (real args)"
+        (length args) (length vars))
+      (value-of body (extend-env* vars args env))
+    )
+  ))
+)
+
+; ex 3.24. factorial
+(define factorial-src "
+let*
+  factrec = proc (rec) proc (n)
+    if =(n, 0)
+      then 1
+      else *(((rec rec) -(n, 1)), n)
+  fact = proc (n) ((factrec factrec) n)
+in
+  (fact 5)
+")
+
+; ex 3.25. even/odd
+(define even-odd-src "
+let*
+  evenrec = proc (even-rec, odd-rec) proc (n)
+    if zero?(n) then 1 else ((odd-rec even-rec odd-rec) -(n, 1))
+  oddrec = proc (even-rec, odd-rec) proc (n)
+    if zero?(n) then 0 else ((even-rec even-rec odd-rec) -(n, 1))
+  even = (evenrec evenrec oddrec)
+  odd  = (oddrec evenrec oddrec)
+in
+  +((odd 9), (even 10))
+")
+
+; ex 3.26. shrink the environment in procedure
+;   Ideally we traverse the body with formal parameters, identifying all free
+;   variables, and apply the environment by those variables and construct a new
+;   environment of only those free variables.
+;   But traversing the procedure body is too laborious and subjects to change
+;   with latter exercises. So I omit the implementation
+(define (make-procedure vars body env)
+  (Procedure vars body env)
+)
+
+
+((sllgen:make-rep-loop "> " value-of-program
+   (sllgen:make-stream-parser eopl:lex-spec let-syn-spec)))
