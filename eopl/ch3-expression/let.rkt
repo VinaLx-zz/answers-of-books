@@ -1,6 +1,6 @@
 #lang racket
 
-(require "../ch2-data-abstraction/environment.rkt")
+(require "procedure.rkt")
 (require (only-in eopl define-datatype cases))
 (require "../sllgen.rkt")
 
@@ -63,8 +63,8 @@
 
     ; ex 3.19
     (Expression
-      ("letproc" identifier "(" (separated-list identifier ",") ")" Expression
-        "in" Expression)
+      ("letproc" identifier "(" (separated-list identifier ",") ")"
+        "=" Expression "in" Expression)
       Letproc)
 
     ; ex 3.21
@@ -74,68 +74,21 @@
 
 
     (Expression ("(" Expression (arbno Expression) ")") Call)
+
+    ;; letrec
+
+    (RecProcDef
+      (identifier "(" (separated-list identifier ",") ")"
+        "=" Expression )
+      MkRecProcDef)
+
+    ; ex 3.31. ex 3.32. ex 3.33.
+    (Expression ("letrec" RecProcDef (arbno RecProcDef) "in" Expression) Letrec)
   )
 )
 
 (sllgen:make-define-datatypes eopl:lex-spec let-syn-spec)
 (define parse (sllgen:make-string-parser eopl:lex-spec let-syn-spec))
-
-;; proc
-(struct Procedure (vars body env) #:transparent)
-
-(define-datatype expval expval?
-  (num-val (num number?))
-  (bool-val (bool boolean?))
-
-  ; ex 3.9.
-  (list-val (l list?))
-
-  ;; proc
-  (proc-val (proc Procedure?))
-)
-
-(define (report-expval-extractor-error type value)
-  (error 'type-error "expect value: ~a to be type: ~a" value type)
-)
-(define (expval->num val)
-  (cases expval val
-    (num-val (num) num)
-    (else (report-expval-extractor-error 'num val))
-  )
-)
-(define (expval->bool val)
-  (cases expval val
-    (bool-val (bool) bool)
-    (else (report-expval-extractor-error 'bool val))
-  )
-)
-
-; ex 3.9.
-(define (expval->list val)
-  (cases expval val
-    (list-val (l) l)
-    (else (report-expval-extractor-error 'list val))
-  )
-)
-
-(define (expval->val val)
-  (cases expval val
-    (num-val (n) n)
-    (bool-val (b) b)
-    (list-val (l) l)
-
-    ;; proc
-    (proc-val (p) p)
-  )
-)
-
-;; proc
-(define (expval->proc val)
-  (cases expval val
-    (proc-val (p) p)
-    (else (report-expval-extractor-error 'proc val))
-  )
-)
 
 (define (init-env) (empty-env))
 
@@ -159,6 +112,7 @@
       )
     )
     (Var (var) (apply-env env var))
+
     ; ex 3.6.
     (Minus (expr)
       (num-val (- (expval->num (value-of expr env))))
@@ -224,11 +178,11 @@
 
     ; ex 3.19.
     (Letproc (var params body expr)
-      (eval-let (list var) (list (make-procedure params body env)) expr env)
+      (eval-let (list var) (list (make-procedure-val params body env)) expr env)
     )
 
     ; ex 3.21
-    (Proc (params body) (proc-val (make-procedure params body env)))
+    (Proc (params body) (make-procedure-val params body env))
 
     (Call (operator operands)
       (let ((proc (expval->proc (value-of operator env)))
@@ -236,6 +190,9 @@
         (apply-procedure proc args)
       )
     )
+
+    ; ex 3.31.
+    (Letrec (def defs expr) (eval-letrec (cons def defs) expr env))
   ) ; cases
 ) ; value-of
 
@@ -243,6 +200,22 @@
   (let ((new-env
       (extend-env* vars (map (λ (val) (value-of val env)) vals) env)))
     (value-of body new-env)
+  )
+)
+
+(define (RecProcDef->ProcInfo recdef)
+  (cases RecProcDef recdef
+    (MkRecProcDef (var params body) (ProcInfo var params body))
+  )
+)
+
+(define (make-rec-env recdefs env)
+  (extend-env*-rec (map RecProcDef->ProcInfo recdefs) env)
+)
+
+(define (eval-letrec recdefs expr env)
+  (let ((rec-env (make-rec-env recdefs env)))
+    (value-of expr rec-env)
   )
 )
 
@@ -313,16 +286,12 @@ in
   +((odd 9), (even 10))
 ")
 
-; ex 3.26. shrink the environment in procedure
-;   Ideally we traverse the body with formal parameters, identifying all free
-;   variables, and apply the environment by those variables and construct a new
-;   environment of only those free variables.
-;   But traversing the procedure body is too laborious and subjects to change
-;   with latter exercises. So I omit the implementation
-(define (make-procedure vars body env)
-  (Procedure vars body env)
-)
+(define even-odd-letrec-src "
+  letrec even(x) = if zero?(x) then 1 else (odd  -(x,1))
+         odd (x) = if zero?(x) then 0 else (even -(x,1))
+      in list((even 0), (odd 0), (even 1), (odd 1), (even 21), (odd 20))
+")
 
 
-((sllgen:make-rep-loop "> " value-of-program
-   (sllgen:make-stream-parser eopl:lex-spec let-syn-spec)))
+; ((sllgen:make-rep-loop "sllgen> " value-of-program
+   ; (sllgen:make-stream-parser eopl:lex-spec let-syn-spec)))
