@@ -61,29 +61,27 @@
 
     ;; proc
 
-    ; ex 3.19
-    (Expression
-      ("letproc" identifier "(" (separated-list identifier ",") ")"
-        "=" Expression "in" Expression)
-      Letproc)
+    (Expression ("(" Expression (arbno Expression) ")") Call)
 
     ; ex 3.21
     (Expression
       ("proc" "(" (separated-list identifier ",") ")" Expression)
       Proc)
 
+    ; ex 3.19
+    (ProcDef
+      (identifier "(" (separated-list identifier ",") ")"
+        "=" Expression )
+      MkProcDef)
 
-    (Expression ("(" Expression (arbno Expression) ")") Call)
+    (Expression
+      ("letproc" ProcDef (arbno ProcDef) "in" Expression)
+      Letproc)
 
     ;; letrec
 
-    (RecProcDef
-      (identifier "(" (separated-list identifier ",") ")"
-        "=" Expression )
-      MkRecProcDef)
-
     ; ex 3.31. ex 3.32. ex 3.33.
-    (Expression ("letrec" RecProcDef (arbno RecProcDef) "in" Expression) Letrec)
+    (Expression ("letrec" ProcDef (arbno ProcDef) "in" Expression) Letrec)
   )
 )
 
@@ -141,7 +139,7 @@
     )
 
     ; ex 3.12.
-    (Cond (tests bodies) (eval-cond tests bodies env))
+    (Cond (tests bodies) (value-of (Cond->If tests bodies) env))
 
     ; ex 3.15
     (Print (expr) (begin
@@ -153,16 +151,7 @@
     (Let (vars vals body) (eval-let vars vals body env))
 
     ; ex 3.17
-    (Let* (vars vals body)
-      (let
-        ((new-env
-          (foldl (λ (vv acc)
-              (extend-env (car vv) (value-of (cdr vv) acc) acc))
-            env (zip vars vals))
-        ))
-        (value-of body new-env)
-      )
-    )
+    (Let* (vars vals body) (value-of (Let*->Let vars vals body) env))
 
     ; ex 3.18
     (Unpack (idents val body)
@@ -177,8 +166,11 @@
     ;; proc
 
     ; ex 3.19.
-    (Letproc (var params body expr)
-      (eval-let (list var) (list (make-procedure-val params body env)) expr env)
+    (Letproc (procdef procdefs expr)
+      (let-values
+        (((vars procs) (Letproc->Let (cons procdef procdefs) env)))
+        (eval-let vars procs expr env)
+      )
     )
 
     ; ex 3.21
@@ -203,28 +195,6 @@
   )
 )
 
-(define (RecProcDef->ProcInfo recdef)
-  (cases RecProcDef recdef
-    (MkRecProcDef (var params body) (ProcInfo var params body))
-  )
-)
-
-(define (make-rec-env recdefs env)
-  (extend-env*-rec (map RecProcDef->ProcInfo recdefs) env)
-)
-
-(define (eval-letrec recdefs expr env)
-  (let ((rec-env (make-rec-env recdefs env)))
-    (value-of expr rec-env)
-  )
-)
-
-(define (zip l1 l2)
-  (if (or (null? l1) (null? l2)) null
-    (cons (cons (car l1) (car l2)) (zip (cdr l1) (cdr l2)))
-  )
-)
-
 ; ex 3.11. operator interpretation abstraction
 (define (int-binary-int lhs rhs rkt-op env)
   (binary-op num-val expval->num lhs rhs rkt-op env)
@@ -240,11 +210,21 @@
 )
 
 ; ex 3.12.
-(define (eval-cond tests bodies env)
-  (if (null? tests) (error 'eval-cond "non-exhausted-matches")
-    (if (expval->bool (value-of (car tests) env))
-      (value-of (car bodies) env)
-      (eval-cond (cdr tests) (cdr bodies) env)
+(define (Cond->If tests bodies)
+  (if (null? tests) (error 'Cond->If "non-exhausted-matches")
+    (let ((test   (car tests)) (body    (car bodies))
+          (tests1 (cdr tests)) (bodies1 (cdr bodies)))
+      (If test body (Cond tests1 bodies1))
+    )
+  )
+)
+
+; ex 3.17.
+(define (Let*->Let vars vals body)
+  (if (null? vars) body
+    (let ((var (car vars)) (val (car vals))
+          (vars1 (cdr vars)) (vals1 (cdr vals)))
+      (Let (list var) (list val) (Let*->Let vars1 vals1 body))
     )
   )
 )
@@ -259,6 +239,20 @@
       (value-of body (extend-env* vars args env))
     )
   ))
+)
+
+; ex 3.19
+(define (Letproc->Let procdefs env)
+  (if (null? procdefs) (values null null)
+    (let-values
+      (((vars proc-vals) (Letproc->Let (cdr procdefs) env)))
+      (cases ProcDef (car procdefs) (MkProcDef (var params body)
+        (let ((p (Proc params body)))
+          (values (cons var vars) (cons p proc-vals))
+        )
+      ))
+    )
+  )
 )
 
 ; ex 3.24. factorial
@@ -292,6 +286,23 @@ in
       in list((even 0), (odd 0), (even 1), (odd 1), (even 21), (odd 20))
 ")
 
+; ex 3.31.
 
-; ((sllgen:make-rep-loop "sllgen> " value-of-program
-   ; (sllgen:make-stream-parser eopl:lex-spec let-syn-spec)))
+(define (ProcDef->ProcInfo recdef)
+  (cases ProcDef recdef
+    (MkProcDef (var params body) (ProcInfo var params body))
+  )
+)
+
+(define (make-rec-env recdefs env)
+  (extend-env*-rec (map ProcDef->ProcInfo recdefs) env)
+)
+
+(define (eval-letrec recdefs expr env)
+  (let ((rec-env (make-rec-env recdefs env)))
+    (value-of expr rec-env)
+  )
+)
+
+((sllgen:make-rep-loop "sllgen> " value-of-program
+   (sllgen:make-stream-parser eopl:lex-spec let-syn-spec)))
