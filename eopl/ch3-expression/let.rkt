@@ -1,8 +1,7 @@
 #lang racket
 
 (require "procedure.rkt")
-(require (only-in eopl define-datatype cases))
-(require "../sllgen.rkt")
+(require "../eopl.rkt")
 
 (provide (all-defined-out))
 
