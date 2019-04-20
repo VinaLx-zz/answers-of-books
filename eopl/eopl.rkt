@@ -9,6 +9,8 @@
     sllgen:make-define-datatypes
     sllgen:make-rep-loop
     list-of
+    define-datatype
+    cases
     (define sllgen:define)))
 
 (provide (all-from-out eopl))
@@ -24,3 +26,8 @@
   )
 )
 
+(define (cons-of p1 p2)
+  (λ (c)
+    (and (cons? c) (p1 (car c)) (p2 (cdr c)))
+  )
+)
