@@ -45,6 +45,7 @@
   )
 )
 
+(define lex-addr cons)
 (define lex-addr? (cons-of number? number?))
 (define (inc-row addr) (cons (add1 (car addr)) (cdr addr)))
 (define (inc-col addr) (cons (car addr) (add1 (cdr addr))))
@@ -66,7 +67,7 @@
   ; ex 3.39.
   (NCons (head NamelessExpr?) (tail NamelessExpr?))
   (NNil)
-  (NList (exprs NamelessExpr?))
+  (NList (exprs (list-of NamelessExpr?)))
   (NUnpack (lsexpr NamelessExpr?) (body NamelessExpr?))
 
   ; ex 3.40.
@@ -141,6 +142,8 @@
   )
 )
 
+(struct static-info (lex-addr is-recursive enclosing-env))
+
 ; ex 3.39. ex 3.41. ribcage
 (define (empty-senv) null)
 (define (extend-senv var senv) (cons (list (normal-var var)) senv))
@@ -151,17 +154,23 @@
 (define (apply-senv senv var)
   (define (apply-senv-impl senv var)
     (define (name-is-var v) (equal? (variable-value v) var))
+    (define (increment-row-in-result result)
+      (match result ((static-info addr is-rec e)
+        (static-info (inc-row addr) is-rec e)
+      ))
+    )
     (match senv
       ((quote ()) #f)
       ((cons rib senv1)
         (match (index-where rib name-is-var)
           (#f (match (apply-senv-impl senv1 var)
             (#f #f)
-            (v (map-variable inc-row v))
+            (result (increment-row-in-result result))
           ))
           (found-here
-            (map-variable
-              (λ (name) (cons 0 found-here)) (list-ref rib found-here)))
+            (static-info
+              (lex-addr 0 found-here)
+              (letrec-var? (list-ref rib found-here)) senv))
         )
       )
     )
@@ -196,10 +205,9 @@
   (cases Expression expr
     (Num (n) (NNum n))
     (Var (var)
-      (let* ((var-addr (apply-senv senv var))
-             (addr (variable-value var-addr)))
-        (if (normal-var? var-addr) (NVar addr) (NRecVar addr))
-      )
+      (match (apply-senv senv var) ((static-info addr is-rec se)
+        (if is-rec (NRecVar addr) (NVar addr))
+      ))
     )
     (Diff (lhs rhs) (NDiff (translate lhs) (translate rhs)))
     (Zero? (expr) (NZero? (translate expr)))
@@ -345,6 +353,34 @@
     (eval-nameless body (extend-nameless-env* args env))
   ))
 )
+
+(define Run (compose run parse))
+
+(define (test-nameless)
+  (local-require rackunit)
+  (check-equal? 0 (Run "0"))
+  (check-equal? 1 (Run "let i = 1 in i") "simple let")
+  (check-equal? 2 (Run "let p = proc (n, m) -(n, m) in (p 4 2)"))
+  (check-equal? 3 (Run "let i = 1 in if zero?(i) then i else 3"))
+  (check-equal? 4 (Run "let i = 0 in if zero?(i) then -(i, -4) else i"))
+  (check-equal? 5 (Run "unpack i j k = list(1, -2, -2) in -(-(i, j), k)"))
+  (check-equal? 6
+    (Run "letrec add(n, m) = if zero?(n) then m else -((add -(n, 1) m), -1)
+              in (add 4 2)"))
+  (check-equal? 7
+    (Run "let i = 1
+           in let p = proc(i, j)
+                        let i = proc(i) -(i, 1)
+                         in (i -(j, 1))
+               in let i = 10
+                   in (p 5 -(i, 1))"))
+  (check-equal? 8
+    (Run "let i = -2
+           in letrec multtwo(n) = if zero?(n)
+                then 0 else -((multtwo -(n, 1)), i)
+           in let i = -3 in (multtwo 4)"))
+)
+(test-nameless)
 
 ((sllgen:make-rep-loop "sllgen> " run
     (sllgen:make-stream-parser eopl:lex-spec nameless-syn-spec)))
