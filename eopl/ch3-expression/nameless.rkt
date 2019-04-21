@@ -131,29 +131,23 @@
   )
 )
 
-(struct variable (value))
+(struct variable (name))
 (struct normal-var variable ())
-(struct letrec-var variable ())
-
-(define (map-variable f var)
-  (match var
-    ((normal-var val) (normal-var (f val)))
-    ((letrec-var val) (letrec-var (f val)))
-  )
-)
+(struct proc-var   variable (params body))
+(struct letrec-var proc-var ())
 
 (struct static-info (lex-addr is-recursive enclosing-env))
 
 ; ex 3.39. ex 3.41. ribcage
 (define (empty-senv) null)
-(define (extend-senv var senv) (cons (list (normal-var var)) senv))
-(define (extend-senv* vars senv) (cons (map normal-var vars) senv))
-(define (extend-senv-rec var senv)
-  (cons (list (letrec-var var)) senv)
+(define (extend-senv var senv) (cons (list var) senv))
+(define (extend-senv*-normal names senv)
+  (extend-senv* (map normal-var names) senv)
 )
+(define (extend-senv* vars senv) (cons vars senv))
 (define (apply-senv senv var)
   (define (apply-senv-impl senv var)
-    (define (name-is-var v) (equal? (variable-value v) var))
+    (define (name-is-var v) (equal? (variable-name v) var))
     (define (increment-row-in-result result)
       (match result ((static-info addr is-rec e)
         (static-info (inc-row addr) is-rec e)
@@ -167,10 +161,9 @@
             (#f #f)
             (result (increment-row-in-result result))
           ))
-          (found-here
-            (static-info
-              (lex-addr 0 found-here)
-              (letrec-var? (list-ref rib found-here)) senv))
+          (found-here (let ((the-var (list-ref rib found-here)))
+            (static-info (lex-addr 0 found-here) (letrec-var? the-var) senv)
+          ))
         )
       )
     )
@@ -226,26 +219,28 @@
 
     (Unpack (vars lexpr body)
       (NUnpack (translate lexpr)
-        (translate-of body (extend-senv* vars senv)))
+        (translate-of body (extend-senv*-normal vars senv)))
     )
 
     ; ex 3.40.
     (Letrec (var params proc-body let-body)
-      (let ((rec-env (extend-senv-rec var senv)))
+      (let ((rec-env (extend-senv (letrec-var var params proc-body) senv)))
         (NLetrec
-          (translate-of proc-body (extend-senv* params rec-env))
+          (translate-of proc-body (extend-senv*-normal params rec-env))
           (translate-of let-body rec-env))
       )
     )
 
     ; ex 3.41.
     (Let (vars vals body)
-      (NLet
-        (translates vals) (translate-of body (extend-senv* vars senv)))
+      (let* ((senv-vars (classify-let-vars vars vals))
+             (body-senv (extend-senv* senv-vars senv)))
+        (NLet (translates vals) (translate-of body body-senv))
+      )
     )
 
     (Proc (params body)
-      (NProc (translate-of body (extend-senv* params senv)))
+      (NProc (translate-of body (extend-senv*-normal params senv)))
     )
 
     (Call (proc args) (NCall (translate proc) (translates args)))
@@ -353,6 +348,23 @@
     (eval-nameless body (extend-nameless-env* args env))
   ))
 )
+
+; ex 3.43.
+(define (classify-let-var var val)
+  (cases Expression val
+    (Proc (params body) (proc-var var params body))
+    (else (normal-var var))
+  )
+)
+(define (classify-let-vars vars vals)
+  (match vars
+    ((quote ()) null)
+    ((cons var vars1) (match vals ((cons val vals1)
+      (cons (classify-let-var var val) (classify-let-vars vars1 vals1))
+    )))
+  )
+)
+
 
 (define Run (compose run parse))
 
