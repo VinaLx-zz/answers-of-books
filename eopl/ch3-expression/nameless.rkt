@@ -47,6 +47,8 @@
 
 (define lex-addr cons)
 (define lex-addr? (cons-of number? number?))
+(define lex-addr-row car)
+(define lex-addr-col cdr)
 (define (inc-row addr) (cons (add1 (car addr)) (cdr addr)))
 (define (inc-col addr) (cons (car addr) (add1 (cdr addr))))
 
@@ -84,7 +86,7 @@
 
 (define parse (sllgen:make-string-parser eopl:lex-spec nameless-syn-spec))
 
-(struct Procedure (body env))
+(struct Procedure (body env) #:transparent)
 
 (define-datatype expval expval?
   (num-val (num number?))
@@ -131,12 +133,19 @@
   )
 )
 
-(struct variable (name))
-(struct normal-var variable ())
-(struct proc-var   variable (params body))
-(struct letrec-var proc-var ())
+(struct variable (name) #:transparent)
+(struct normal-var variable () #:transparent)
+(struct proc-var   variable (params body env) #:transparent)
+(struct letrec-var variable () #:transparent)
 
-(struct static-info (lex-addr is-recursive enclosing-env))
+(struct static-info (lex-addr var enclosing-env) #:transparent)
+
+(define (same-variable info1 info2)
+  (match (cons info1 info2)
+    ((cons (static-info addr1 rec1 env1) (static-info addr2 rec2 env2))
+     (and (equal? (lex-addr-col addr1) (lex-addr-col addr2)) (eq? env1 env2)))
+  )
+)
 
 ; ex 3.39. ex 3.41. ribcage
 (define (empty-senv) null)
@@ -149,8 +158,8 @@
   (define (apply-senv-impl senv var)
     (define (name-is-var v) (equal? (variable-name v) var))
     (define (increment-row-in-result result)
-      (match result ((static-info addr is-rec e)
-        (static-info (inc-row addr) is-rec e)
+      (match result ((static-info addr v e)
+        (static-info (inc-row addr) v e)
       ))
     )
     (match senv
@@ -162,7 +171,7 @@
             (result (increment-row-in-result result))
           ))
           (found-here (let ((the-var (list-ref rib found-here)))
-            (static-info (lex-addr 0 found-here) (letrec-var? the-var) senv)
+            (static-info (lex-addr 0 found-here) the-var senv)
           ))
         )
       )
@@ -197,11 +206,7 @@
   (define (translates exprs) (map translate exprs))
   (cases Expression expr
     (Num (n) (NNum n))
-    (Var (var)
-      (match (apply-senv senv var) ((static-info addr is-rec se)
-        (if is-rec (NRecVar addr) (NVar addr))
-      ))
-    )
+    (Var (var) (translate-var var senv))
     (Diff (lhs rhs) (NDiff (translate lhs) (translate rhs)))
     (Zero? (expr) (NZero? (translate expr)))
 
@@ -224,7 +229,7 @@
 
     ; ex 3.40.
     (Letrec (var params proc-body let-body)
-      (let ((rec-env (extend-senv (letrec-var var params proc-body) senv)))
+      (let ((rec-env (extend-senv (letrec-var var) senv)))
         (NLetrec
           (translate-of proc-body (extend-senv*-normal params rec-env))
           (translate-of let-body rec-env))
@@ -233,7 +238,7 @@
 
     ; ex 3.41.
     (Let (vars vals body)
-      (let* ((senv-vars (classify-let-vars vars vals))
+      (let* ((senv-vars (classify-let-vars vars vals senv))
              (body-senv (extend-senv* senv-vars senv)))
         (NLet (translates vals) (translate-of body body-senv))
       )
@@ -251,7 +256,9 @@
   (empty-nameless-env)
   (extend-nameless-env* (rib (list-of expval?)) (tail nameless-env?))
 )
-(define (extend-nameless-env value env) (extend-nameless-env* (list value) env))
+(define (extend-nameless-env value env)
+  (extend-nameless-env* (list value) env)
+)
 (define (apply-nameless-env env addr)
   (define (apply-nameless-rib rib col)
     (if (>= col (length rib)) #f (list-ref rib col))
@@ -336,6 +343,17 @@
 )
 
 ; ex 3.40.
+(define (translate-var var senv)
+  (match (apply-senv senv var) ((static-info addr v se)
+    (match v
+      ((letrec-var _) (NRecVar addr))
+      ((proc-var _ params body _) #:when (share-same-free-vars v senv)
+        (translate-of (Proc params body) senv)
+      )
+      (else (NVar addr)))
+  ))
+)
+
 (define (rec-proc->proc p)
   (match p ((Procedure body env)
     (Procedure body (extend-nameless-env (proc-val p) env))
@@ -350,21 +368,82 @@
 )
 
 ; ex 3.43.
-(define (classify-let-var var val)
+(define (classify-let-var var val env)
   (cases Expression val
-    (Proc (params body) (proc-var var params body))
+    (Proc (params body) (proc-var var params body env))
     (else (normal-var var))
   )
 )
-(define (classify-let-vars vars vals)
+(define (classify-let-vars vars vals env)
   (match vars
     ((quote ()) null)
     ((cons var vars1) (match vals ((cons val vals1)
-      (cons (classify-let-var var val) (classify-let-vars vars1 vals1))
+      (cons
+        (classify-let-var var val env)
+        (classify-let-vars vars1 vals1 env))
     )))
   )
 )
+(define (free-variables body params)
+  (define (recurse-into . exprs)
+    (apply append (map (λ (expr) (free-variables expr params)) exprs))
+  )
+  (define (subenv-free-variables body1 new-vars)
+    (filter
+      (compose not (λ (v) (member v params)))
+      (free-variables body1 new-vars))
+  )
+  (cases Expression body
+    (Var (var) (if (member var params) null (list var)))
+    (Diff (lhs rhs) (recurse-into lhs rhs))
+    (Zero? (expr) (recurse-into expr))
+    (If (test texpr fexpr) (recurse-into test texpr fexpr))
+    (Cond (tests bodies)
+      (append (apply recurse-into tests) (apply recurse-into bodies))
+    )
+    (Cons (head tail) (recurse-into head tail))
+    (List (exprs) (apply recurse-into exprs))
+    (Unpack (vars val let-body)
+      (append (subenv-free-variables let-body vars) (recurse-into val))
+    )
+    (Letrec (var params1 proc-body let-body)
+      (append (subenv-free-variables proc-body (cons var params1))
+              (subenv-free-variables let-body (list var)))
+    )
+    (Let (vars vals body1)
+      (append (apply recurse-into vals) (subenv-free-variables body1 vars))
+    )
+    (Call (f args) (apply recurse-into f args))
+    (Proc (params1 body) (subenv-free-variables body params))
+    (else null)
+  )
+)
 
+(define (share-same-free-vars pv senv)
+  (match pv ((proc-var _ params body env)
+    (let ((free-vars (free-variables body params)))
+      (andmap
+        (λ (v) (same-variable (apply-senv env v) (apply-senv senv v)))
+        free-vars)
+    )
+  ))
+)
+
+; ex 3.44. eliminating dead variable declaration
+;
+; idea:
+; Modify the internal implementation of `translate-of` by adding another
+; return value representing the set of "used variables". And translation of any
+; kind of `Let` expression makes use of this additional information, eliminating
+; each variable which is not used in the "let-body".
+;
+; Interestingly enough, even if the whole `Let` is eliminated (all variables
+; declared in `Let` are unused), a empty rib should still be added to the
+; nameless environment during evaluation of this empty `Let`. Otherwise there's
+; a chance we break the lexical address of the expression in let-body.
+;
+; The implementation destroys most of previous exercises and is mostly laborious
+; job, so it's omitted... for now.
 
 (define Run (compose run parse))
 
