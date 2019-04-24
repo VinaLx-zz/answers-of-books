@@ -1,6 +1,6 @@
 #lang racket
 
-(require (only-in eopl cases define-datatype list-of))
+(require "../eopl.rkt")
 (provide (all-defined-out))
 
 (define-datatype expval expval?
@@ -71,12 +71,6 @@
 ;   with latter exercises. So I omit the implementation
 (define (make-procedure-val vars body env)
   (proc-val (Procedure vars body env))
-)
-
-(define (zip l1 l2)
-  (if (or (null? l1) (null? l2)) null
-    (cons (cons (car l1) (car l2)) (zip (cdr l1) (cdr l2)))
-  )
 )
 
 (module* procedural #f

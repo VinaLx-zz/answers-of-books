@@ -31,3 +31,9 @@
     (and (cons? c) (p1 (car c)) (p2 (cdr c)))
   )
 )
+
+(define (zip l1 l2)
+  (if (or (null? l1) (null? l2)) null
+    (cons (cons (car l1) (car l2)) (zip (cdr l1) (cdr l2)))
+  )
+)
