@@ -2,7 +2,8 @@
 
 ;; mostly copied from "ch3-expression/procedure.rkt"
 
-(require "../eopl.rkt")
+(require "../../eopl.rkt")
+(require (submod "../store.rkt" global-mutable))
 (provide (all-defined-out))
 
 (struct Procedure (vars body env) #:transparent)
@@ -11,6 +12,7 @@
   (num-val (num number?))
   (bool-val (bool boolean?))
   (proc-val (proc Procedure?))
+  (void-val)
 )
 
 (define (report-expval-extractor-error type value)
@@ -40,6 +42,7 @@
     (num-val (n) n)
     (bool-val (b) b)
     (proc-val (p) p)
+    (void-val () (void))
   )
 )
 
@@ -51,7 +54,7 @@
 
 (define-datatype environment environment?
   (empty-env)
-  (extend-env (var symbol?) (val expval?) (env environment?))
+  (extend-env (var symbol?) (val reference?) (env environment?))
   (extend-env*-rec (proc-infos (list-of ProcInfo?)) (env environment?))
 )
 (define (init-env) (empty-env))
@@ -76,7 +79,8 @@
              (proc-info (findf predicate proc-infos)))
         (if proc-info
           (match proc-info ((ProcInfo _ params body)
-            (make-procedure-val params body env)
+            ; implicit reference
+            (newref (make-procedure-val params body env))
           ))
           (apply-env env qvar)
         )

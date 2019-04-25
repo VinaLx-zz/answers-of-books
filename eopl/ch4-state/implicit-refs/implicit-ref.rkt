@@ -1,12 +1,16 @@
 #lang racket
 
 (require "legacy-data.rkt")
-(require "../eopl.rkt")
+(require "../../eopl.rkt")
+(require (submod "../store.rkt" global-mutable))
 
 (provide (all-defined-out))
 
 (sllgen:define syntax-spec
   '(
+    ; program
+    (Program (Expression) a-program)
+
     ; basic expressions
     (Expression (number) Num)
     (Expression (identifier) Var)
@@ -26,8 +30,10 @@
         "=" Expression )
       MkProcDef)
 
-    ; program
-    (Program (Expression) a-program)
+    ; implicit references
+    (Expression ("begin" (separated-list Expression ";") "end") Begin_)
+
+    (Expression ("set" identifier "=" Expression) Set)
 ))
 
 (sllgen:make-define-datatypes eopl:lex-spec syntax-spec)
@@ -35,7 +41,10 @@
 
 (define (value-of-program pgm)
   (cases Program pgm
-    (a-program (expr) (expval->val (value-of expr (init-env))))
+    (a-program (expr)
+      (initialize-store!)
+      (expval->val (value-of expr (init-env)))
+    )
   )
 )
 
@@ -43,7 +52,7 @@
   (define (eval e) (value-of e env))
   (cases Expression expr
     (Num (n) (num-val n))
-    (Var (var) (apply-env env var))
+    (Var (var) (deref (apply-env env var)))
     (Diff (lhs rhs)
       (num-val (- (expval->num (eval lhs)) (expval->num (eval rhs))))
     )
@@ -56,7 +65,7 @@
 
     (Let (vars vals body)
       (let ((new-env
-        (extend-env* vars (map eval vals) env)))
+        (extend-env* vars (map (compose newref eval) vals) env)))
         (value-of body new-env)
       )
     )
@@ -72,6 +81,14 @@
 
     (Letrec (def defs expr) (eval-letrec (cons def defs) expr env))
 
+    ; implicit reference
+    (Begin_ (exprs) (last (map eval exprs)))
+
+    (Set (ident expr)
+      (setref! (apply-env env ident) (eval expr))
+      (void-val)
+    )
+
   ) ; cases
 ) ; value-of
 
@@ -81,7 +98,7 @@
       (error 'apply-procedure
         "procedure arity mismatch between ~a (parameters) and ~a (arguments)"
         (length args) (length vars))
-      (value-of body (extend-env* vars args env))
+      (value-of body (extend-env* vars (map newref args) env))
     )
   ))
 )
