@@ -37,3 +37,7 @@
     (cons (cons (car l1) (car l2)) (zip (cdr l1) (cdr l2)))
   )
 )
+
+(define (repeat n x)
+  (if (zero? n) null (cons x (repeat (- n 1) x)))
+)

@@ -81,6 +81,16 @@
     (Expression ("right" "(" Expression ")") Right)
     (Expression ("setleft" "(" Expression "," Expression")") SetLeft)
     (Expression ("setright" "(" Expression "," Expression ")") SetRight)
+
+    ; ex 4.29. array
+    (Expression ("newarray" "(" Expression "," Expression ")") NewArray)
+    (Expression ("arrayref" "(" Expression "," Expression ")") ArrayRef)
+    (Expression
+      ("arrayset" "(" Expression "," Expression "," Expression ")")
+      ArraySet)
+
+    ; ex 4.30. arraylength
+    (Expression ("arraylength" "(" Expression ")") ArrayLength)
 ))
 
 (sllgen:make-define-datatypes eopl:lex-spec syntax-spec)
@@ -147,6 +157,24 @@
     (SetRight (pexpr vexpr)
       (set-right (expval->pair (eval pexpr)) (eval vexpr))
     )
+
+    ; ex 4.29.
+    (NewArray (lexpr vexpr)
+      (let ((len (expval->num (eval lexpr))))
+        (array-val (new-array len (repeat len (eval vexpr))))
+      )
+    )
+    (ArrayRef (arr idx)
+      (array-ref (expval->array (eval arr)) (expval->num (eval idx)))
+    )
+    (ArraySet (arr idx val)
+      (array-set
+        (expval->array (eval arr)) (expval->num (eval idx)) (eval val))
+      (void-val)
+    )
+
+    ; ex 4.30.
+    (ArrayLength (arr) (array-length (expval->array (eval arr))))
   ) ; cases
 ) ; value-of
 
@@ -227,7 +255,7 @@
       env
     )
     (Print (expr)
-      (printf "~a\n" (expval->val (eval expr)))
+      (printf "~a\n" (expval->lisp (eval expr)))
       env
     )
     (Block (stmts)
