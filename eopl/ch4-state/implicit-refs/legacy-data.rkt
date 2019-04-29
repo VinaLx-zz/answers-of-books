@@ -4,15 +4,20 @@
 
 (require "../../eopl.rkt")
 (require (submod "../store.rkt" global-mutable))
+(require "mutable-pair.rkt")
 (provide (all-defined-out))
+(provide (all-from-out "mutable-pair.rkt"))
 
-(struct Procedure (vars body env) #:transparent)
+(struct Procedure (vars body env body-is-stmt) #:transparent)
 
 (define-datatype expval expval?
   (num-val (num number?))
   (bool-val (bool boolean?))
   (proc-val (proc Procedure?))
   (void-val)
+
+  ; mutable pair
+  (pair-val (p mutable-pair?))
 )
 
 (define (report-expval-extractor-error type value)
@@ -36,6 +41,12 @@
     (else (report-expval-extractor-error 'proc val))
   )
 )
+(define (expval->pair val)
+  (cases expval val
+    (pair-val (p) p)
+    (else (report-expval-extractor-error 'pair val))
+  )
+)
 
 (define (expval->val val)
   (cases expval val
@@ -43,18 +54,28 @@
     (bool-val (b) b)
     (proc-val (p) p)
     (void-val () (void))
+    (pair-val (p) (cons (left p) (right p)))
   )
 )
 
 (define (make-procedure-val vars body env)
-  (proc-val (Procedure vars body env))
+  (proc-val (Procedure vars body env #f))
+)
+(define (make-subroutine-val vars body env)
+  (proc-val (Procedure vars body env #t))
 )
 
 (struct ProcInfo (name params body) #:transparent)
 
+(define (pred-or . preds)
+  (lambda (v) (ormap (λ (p) (p v)) preds))
+)
+
 (define-datatype environment environment?
   (empty-env)
-  (extend-env (var symbol?) (val reference?) (env environment?))
+  (extend-env
+    (var symbol?) (val (pred-or reference? expval?)) (env environment?)
+  )
   (extend-env*-rec (proc-infos (list-of ProcInfo?)) (env environment?))
 )
 (define (init-env) (empty-env))
