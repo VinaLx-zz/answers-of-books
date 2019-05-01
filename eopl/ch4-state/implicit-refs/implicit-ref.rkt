@@ -104,6 +104,14 @@
 
     ; ex 4.35. ref specifier in pass-by-value framework
     (Expression ("ref" identifier) Ref)
+
+    ; call by name
+    (Expression ("<" Expression (arbno Expression) ">") CallN)
+
+    ; ex 4.42 letlazy
+    (Expression
+      ("letlazy" (arbno identifier "=" Expression) "in" Expression)
+      LetLazy)
 ))
 
 (sllgen:make-define-datatypes eopl:lex-spec syntax-spec)
@@ -129,7 +137,7 @@
 
     (Proc (params body) (make-procedure-val params body env))
 
-    (Call (operator operands) (eval-call operator operands #t))
+    (Call (operator operands) (eval-call operator operands env 'by-reference))
 
     (Letrec (def defs expr) (eval-letrec (cons def defs) expr env))
 
@@ -141,7 +149,7 @@
       (eval-let vars (map (compose try-pass-reference eval) vals) body env)
     )
 
-    (Var (var) (to-rvalue (apply-env env var)))
+    (Var (var) (eval-var var env))
 
     (Set (ident expr)
       (define ref (get-ref ident env))
@@ -190,7 +198,7 @@
     (ArrayLength (arr) (array-length (expval->array (eval arr))))
 
     ; ex 4.33.
-    (CallV (operator operands) (eval-call operator operands #f))
+    (CallV (operator operands) (eval-call operator operands env 'by-value))
 
     ; ex 4.34.
     (Letref (vars vals body)
@@ -199,6 +207,14 @@
 
     ; ex 4.35.
     (Ref (ident) (eval-ref ident env))
+
+    ; call by name
+    (CallN (operator operands) (eval-call operator operands env 'by-name))
+
+    ; ex 4.42 lazy let
+    (LetLazy (vars vals body)
+      (eval-let vars (map (eval-as-thunk env) vals) body env)
+    )
   ) ; cases
 ) ; value-of
 
@@ -221,12 +237,19 @@
   )
 )
 
-(define (eval-call operator operands env by-reference)
+(define (eval-call operator operands env eval-strategy)
   ; ex 4.33. support call by value as well
   (define (eval-by-value expr) (try-pass-reference (value-of expr env)))
+  (define (select-strategy es)
+    (case es
+      ((by-value) eval-by-value)
+      ((by-reference) (eval-as-ref env))
+      ((by-name) (eval-as-thunk env))
+    )
+  )
 
   (let ((proc (expval->proc (value-of operator env)))
-        (args (map (if by-reference (eval-as-ref env) eval-by-value) operands)))
+        (args (map (select-strategy eval-strategy) operands)))
     (apply-procedure proc args)
   )
 )
@@ -260,6 +283,18 @@
     (error 'get-ref "attempting to set a non-reference value ~a" ref)
   )
   ref
+)
+
+(define (eval-var ident env)
+  (define ref (apply-env env ident))
+  (cond
+    ((reference? ref)
+      (define tk (deref ref))
+      (if (Thunk? tk) (eval-thunk tk) tk)
+    )
+    ((expval? ref) ref)
+    (else 'Var "invalid denoted value ~a" ref)
+  )
 )
 
 ; ex 4.22.
@@ -318,10 +353,10 @@
       (extend-env ident (make-subroutine-val params body env) env)
     )
 
-    (SCall (op args) (eval-call op args env #t) env)
+    (SCall (op args) (eval-call op args env 'by-reference) env)
 
     ; ex 4.33.
-    (SCallV (op args) (eval-call op args env #f) env)
+    (SCallV (op args) (eval-call op args env 'by-value) env)
   )
 )
 
@@ -370,6 +405,28 @@
   (cases expval val
     (ref-val (ref) ref)
     (else (newref val))
+  )
+)
+
+; call by name
+(struct Thunk (body env) #:transparent)
+
+(define (eval-thunk thunk)
+  (match thunk ((Thunk body env)
+    (value-of body env)
+  ))
+)
+
+(define ((eval-as-thunk env) expr)
+  (cases Expression expr
+    (Var (ident) (to-lvalue (apply-env env ident)))
+    (Ref (ident) (to-lvalue (apply-env env ident)))
+
+    ; ex 4.41 avoid making thunk when encountering constants
+    (Num (n) (newref (num-val n)))
+    (Proc (params body) (newref (value-of env expr)))
+
+    (else (newref (Thunk expr env)))
   )
 )
 
