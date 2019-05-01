@@ -21,6 +21,7 @@
       ("let" (arbno identifier "=" Expression) "in" Expression)
       Let)
     (Expression ("(" Expression (arbno Expression) ")") Call)
+
     (Expression
       ("proc" "(" (separated-list identifier ",") ")" Expression)
       Proc)
@@ -70,7 +71,7 @@
 
     ; ex 4.27. subroutine
     (Statement
-      ("subroutine" identifier "(" (arbno identifier) ")" Statement)
+      ("subroutine" identifier "(" (separated-list identifier ",") ")" Statement)
       Subroutine)
 
     (Statement ("(" Expression (arbno Expression) ")") SCall)
@@ -91,6 +92,18 @@
 
     ; ex 4.30. arraylength
     (Expression ("arraylength" "(" Expression ")") ArrayLength)
+
+    ; ex 4.33. call by value
+    (Expression ("[" Expression (arbno Expression) "]") CallV)
+    (Statement ("[" Expression (arbno Expression) "]") SCallV)
+
+    ; ex 4.34. letref
+    (Expression
+      ("letref" (arbno identifier "=" Expression) "in" Expression)
+      Letref)
+
+    ; ex 4.35. ref specifier in pass-by-value framework
+    (Expression ("ref" identifier) Ref)
 ))
 
 (sllgen:make-define-datatypes eopl:lex-spec syntax-spec)
@@ -116,7 +129,7 @@
 
     (Proc (params body) (make-procedure-val params body env))
 
-    (Call (operator operands) (eval-call operator operands))
+    (Call (operator operands) (eval-call operator operands #t))
 
     (Letrec (def defs expr) (eval-letrec (cons def defs) expr env))
 
@@ -125,7 +138,7 @@
 
     ; ex 4.20 letmutable
     (LetMutable (vars vals body)
-      (eval-let vars (map (compose newref eval) vals) body env)
+      (eval-let vars (map (compose try-pass-reference eval) vals) body env)
     )
 
     (Var (var) (to-rvalue (apply-env env var)))
@@ -175,6 +188,17 @@
 
     ; ex 4.30.
     (ArrayLength (arr) (array-length (expval->array (eval arr))))
+
+    ; ex 4.33.
+    (CallV (operator operands) (eval-call operator operands #f))
+
+    ; ex 4.34.
+    (Letref (vars vals body)
+      (eval-let vars (map (eval-as-ref env) vals) body env)
+    )
+
+    ; ex 4.35.
+    (Ref (ident) (eval-ref ident env))
   ) ; cases
 ) ; value-of
 
@@ -184,7 +208,7 @@
       (error 'apply-procedure
         "procedure arity mismatch between ~a (parameters) and ~a (arguments)"
         (length args) (length vars))
-      (let ((proc-env (extend-env* vars (map newref args) env)))
+      (let ((proc-env (extend-env* vars args env)))
         ((if is-subroutine run-statement-void value-of) body proc-env)
       )
     )
@@ -197,9 +221,12 @@
   )
 )
 
-(define (eval-call operator operands env)
+(define (eval-call operator operands env by-reference)
+  ; ex 4.33. support call by value as well
+  (define (eval-by-value expr) (try-pass-reference (value-of expr env)))
+
   (let ((proc (expval->proc (value-of operator env)))
-        (args (map (λ (a) (value-of a env)) operands)))
+        (args (map (if by-reference (eval-as-ref env) eval-by-value) operands)))
     (apply-procedure proc args)
   )
 )
@@ -291,7 +318,10 @@
       (extend-env ident (make-subroutine-val params body env) env)
     )
 
-    (SCall (op args) (eval-call op args env))
+    (SCall (op args) (eval-call op args env #t) env)
+
+    ; ex 4.33.
+    (SCallV (op args) (eval-call op args env #f) env)
   )
 )
 
@@ -309,6 +339,39 @@
     env (zip idents exprs))
 )
 
+(define (to-lvalue val)
+  (if (reference? val) val (newref val))
+)
+
+; ex 4.32. call by reference for multiple parameter procedure
+(define ((eval-as-ref env) expr)
+  (cases Expression expr
+    (Var (ident) (to-lvalue (apply-env env ident))) 
+    ; ex 4.36. arrayref call by reference
+    (ArrayRef (arr idx)
+      (array-get-ref
+        (expval->array (value-of arr env))
+        (expval->num (value-of idx env)))
+    )
+    (Ref (ident) (to-lvalue (apply-env env ident)))
+    (else (newref (value-of expr env)))
+  )
+)
+
+; ex 4.35.
+(define (eval-ref ident env)
+  (define ref (apply-env env ident))
+  (if (reference? ref) (ref-val ref)
+    (error 'Ref "taking reference to a constant")
+  )
+)
+
+(define (try-pass-reference val)
+  (cases expval val
+    (ref-val (ref) ref)
+    (else (newref val))
+  )
+)
 
 ((sllgen:make-rep-loop "sllgen> " run-program
    (sllgen:make-stream-parser eopl:lex-spec syntax-spec)))

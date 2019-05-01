@@ -19,6 +19,9 @@
   ; mutable pair
   (pair-val (p mutable-pair?))
   (array-val (arr array?))
+
+  ; ex 4.35
+  (ref-val (ref reference?))
 )
 
 (define (report-expval-extractor-error type value)
@@ -63,6 +66,7 @@
     (void-val () (void))
     (pair-val (p) p)
     (array-val (a) a)
+    (ref-val (r) r)
   )
 )
 (define (expval->lisp val)
@@ -74,6 +78,7 @@
     (pair-val (p)
       (cons (expval->lisp (left p)) (expval->lisp (right p))))
     (array-val (a) (map (compose expval->lisp deref) (array-data a)))
+    (ref-val (r) (expval->lisp (deref r)))
   )
 )
 
