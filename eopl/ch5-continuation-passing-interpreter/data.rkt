@@ -1,12 +1,15 @@
 #lang racket
 
 (require "../eopl.rkt")
+(require "../ch4-state/store.rkt")
 (provide (all-defined-out))
 
 (define-datatype expval expval?
   (num-val (num number?))
   (bool-val (bool boolean?))
   (proc-val (proc Procedure?))
+  (list-val (xs (list-of expval?)))
+  (void-val)
 )
 (define (report-expval-extractor-error type value)
   (error 'type-error "expect value: ~a to be type: ~a" value type)
@@ -29,11 +32,19 @@
     (else (report-expval-extractor-error 'proc val))
   )
 )
+(define (expval->list val)
+  (cases expval val
+    (list-val (l) l)
+    (else (report-expval-extractor-error 'list val))
+  )
+)
 (define (expval->val val)
   (cases expval val
     (num-val (n) n)
     (bool-val (b) b)
     (proc-val (p) p)
+    (list-val (l) (map expval->val l))
+    (void-val () (void))
   )
 )
 (struct Procedure (vars body env) #:transparent)
@@ -44,7 +55,7 @@
 )
 (define-datatype environment environment?
   (empty-env)
-  (extend-env (var symbol?) (val expval?) (env environment?))
+  (extend-env (var symbol?) (val reference?) (env environment?))
   (extend-env*-rec (proc-infos (list-of ProcInfo?)) (env environment?))
 )
 (define (extend-env* vars vals env)
@@ -66,7 +77,7 @@
              (proc-info (findf predicate proc-infos)))
         (if proc-info
           (match proc-info ((ProcInfo _ params body)
-            (make-procedure-val params body env)
+            (newref (make-procedure-val params body env))
           ))
           (apply-env env qvar)
         )
