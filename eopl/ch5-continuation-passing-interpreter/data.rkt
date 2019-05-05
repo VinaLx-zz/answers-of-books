@@ -3,6 +3,7 @@
 (require "../eopl.rkt")
 (require "../ch4-state/store.rkt")
 (provide (all-defined-out))
+(require "cont.rkt")
 
 (define-datatype expval expval?
   (num-val (num number?))
@@ -10,6 +11,9 @@
   (proc-val (proc Procedure?))
   (list-val (xs (list-of expval?)))
   (void-val)
+
+  ; ex 5.40
+  (cont-val (cont cont?))
 )
 (define (report-expval-extractor-error type value)
   (error 'type-error "expect value: ~a to be type: ~a" value type)
@@ -38,6 +42,12 @@
     (else (report-expval-extractor-error 'list val))
   )
 )
+(define (expval->cont val)
+  (cases expval val
+    (cont-val (cont) cont)
+    (else (report-expval-extractor-error 'cont val))
+  )
+)
 (define (expval->val val)
   (cases expval val
     (num-val (n) n)
@@ -45,6 +55,7 @@
     (proc-val (p) p)
     (list-val (l) (map expval->val l))
     (void-val () (void))
+    (cont-val (c) c)
   )
 )
 (struct Procedure (vars body env) #:transparent)

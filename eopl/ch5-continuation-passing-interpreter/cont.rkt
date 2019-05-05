@@ -7,3 +7,5 @@
 )
 
 (define (apply-cont cont v) (cont v))
+
+(define cont? procedure?)

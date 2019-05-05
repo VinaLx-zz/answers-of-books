@@ -49,7 +49,9 @@
     (Expression ("begin" (separated-list Expression ";") "end") Begin_)
 
     ; exceptions
-    (Expression ("try" Expression "catch" "(" identifier ")" Expression) Try)
+    (Expression
+      ("try" Expression "catch" "(" identifier "," identifier ")" Expression)
+      Try)
     (Expression ("raise" Expression) Raise)
 
     ; ex 5.38. division
@@ -57,6 +59,19 @@
 
     ; ex 5.39. raise and resume
     (Expression ("raise_" Expression) Raise_)
+
+    ; ex 5.40. ex 5.42.
+    (Expression ("throw" Expression "to" Expression) Throw)
+
+    ; ex 5.41.
+    (Expression ("letcc" identifier "in" Expression) Letcc)
+
+    ; ex 5.44. relation between callcc/letcc/throw
+    ; part 1.
+    (Expression ("callcc") CallCC)
+
+    (Expression ("letcc_" identifier "in" Expression) Letcc_)
+    (Expression ("throw_" Expression "to" Expression) Throw_)
   )
 )
 
@@ -143,8 +158,19 @@
     
     ; ex 5.8.
     (Call (operator operands)
-      (value-of/k operator env handler (λ (proc)
-        (apply-procedure/k (expval->proc proc) operands env handler cont)
+      (value-of/k operator env handler (λ (opval)
+        (cases expval opval
+          (proc-val (proc) (apply-procedure/k proc operands env handler cont))
+          ; ex 5.43. support procedure invoking syntax for continuation
+          (cont-val (c)
+            (if (equal? (length operands) 1)
+              (value-of/k
+                (car operands) env handler (λ (val) (apply-cont c val)))
+              (raise-wrong-arguments-exception handler 1 cont)
+            )
+          )
+          (else (report-expval-extractor-error 'proc-or-cont opval))
+        )
       ))
     )
 
@@ -165,20 +191,21 @@
     )
 
     ; exceptions
-    (Try (tried ident catch-expr)
-      (let ((new-handler (exception-handler ident catch-expr env cont handler)))
+    (Try (tried kvar evar catch-expr)
+      (let ((new-handler
+             (exception-handler kvar evar catch-expr env cont handler)))
         (value-of/k tried env new-handler cont)
       )
     )
     (Raise (expr)
-      (value-of/k expr env handler (λ (err) (apply-handler handler err)))
+      (value-of/k expr env handler (λ (err) (apply-handler handler err cont)))
     )
 
     ; ex 5.38. division
     (Div (lhs rhs)
       (value-of/k lhs env handler (λ (lval)
         (value-of/k rhs env handler (λ (rval)
-          (if (zero? (expval->num rval)) (apply-handler handler lval)
+          (if (zero? (expval->num rval)) (apply-handler handler lval cont)
             (return (num-val (quotient (expval->num lval) (expval->num rval))))
           )
         ))
@@ -191,6 +218,41 @@
         (λ (err) (apply-handler-with-cont handler err cont))
       )
     )
+
+    ; ex 5.39. ex 5.42.
+    (Throw (vexpr cexpr)
+      (value-of/k cexpr env handler (λ (cval)
+        (define c (expval->cont cval))
+        (value-of/k vexpr env handler (λ (val) (apply-cont c val)))
+      ))
+    )
+
+    ; ex 5.41.
+    (Letcc (kvar body)
+      (let ((new-env (extend-env kvar (newref (cont-val cont)) env)))
+        (value-of/k body new-env handler cont)
+      )
+    )
+
+    ; ex 5.44.
+    (CallCC () (value-of/k
+      (Proc '(callcc-proc)
+        (Letcc 'callcc-cont
+          (Call (Var 'callcc-proc) (list
+            (Proc '(callcc-return-var)
+              (Throw (Var 'callcc-return-var) (Var 'callcc-cont)))
+      )))) env handler cont
+    ))
+
+    (Letcc_ (kvar body) (value-of/k
+      (Call (CallCC) (list (Proc (list kvar) body)))
+      env handler cont
+    ))
+
+    (Throw_ (vexpr kexpr) (value-of/k
+      (Call kexpr (list vexpr))
+      env handler cont
+    ))
   )
 )
 
@@ -208,13 +270,17 @@
   )
 )
 
+(define (raise-wrong-arguments-exception handler right-nargs cont)
+  (apply-handler handler (num-val right-nargs) cont)
+)
+
 ; trampolined apply-procedure/k
 (define (apply-procedure/k p args env handler cont) (λ ()
   (match p ((Procedure params body penv)
     (if (not (equal? (length args) (length params)))
       ; ex 5.37.
       ; raise exception when procedure is applied with wrong number of arguments
-      (apply-handler handler (num-val (length params)))
+      (raise-wrong-arguments-exception handler (length params) cont)
       (values-of/k args env handler (λ (vals)
         (define refs (map newref vals))
         (value-of/k body (extend-env* params refs penv) handler cont)
@@ -245,11 +311,16 @@
 
 ; exception
 ; ex 5.35. ex 5.36.
-(struct exception-handler (catch-var catch-expr env cont next-handler))
-(define (apply-handler handler err)
+(struct exception-handler
+  (resume-var catch-var catch-expr env cont next-handler)
+)
+(define (apply-handler handler err resume-cont)
   (match handler
-    ((exception-handler catch-var catch-expr env cont next-handler)
-      (let ((catch-env (extend-env catch-var (newref err) env)))
+    ((exception-handler resume-var catch-var catch-expr env cont next-handler)
+      (let ((catch-env
+             (extend-env*
+               (list resume-var catch-var)
+               (list (newref (cont-val resume-cont)) (newref err)) env)))
         (value-of/k catch-expr catch-env next-handler cont)
       )
     )
@@ -263,12 +334,15 @@
 ; ex 5.39. resume execution from raise expression
 (define (apply-handler-with-cont handler err cont)
   (match handler
-    ((exception-handler cv ce env _ h)
-      (apply-handler (exception-handler cv ce env cont h) err)
+    ((exception-handler kv cv ce env _ h)
+      (apply-handler (exception-handler kv cv ce env cont h) err cont)
     )
-    (else (apply-handler handler err))
+    (else (apply-handler handler err cont))
   )
 )
+
+; (require racket/trace)
+; (trace value-of/k)
 
 ((sllgen:make-rep-loop "sllgen> " value-of-program
    (sllgen:make-stream-parser eopl:lex-spec syntax-spec)))
