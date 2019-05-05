@@ -54,6 +54,9 @@
 
     ; ex 5.38. division
     (Expression ("/" "(" Expression "," Expression ")") Div)
+
+    ; ex 5.39. raise and resume
+    (Expression ("raise_" Expression) Raise_)
   )
 )
 
@@ -61,15 +64,10 @@
 (define parse (sllgen:make-string-parser eopl:lex-spec syntax-spec))
 
 (define (value-of-program pgm)
-  (define (no-error-handler e)
-    (printf "internal error: uncaught exception ~a\n" (expval->val e))
-    (void-val)
-  )
   (cases Program pgm
     (a-program (expr)
       (initialize-store!)
-      (let ((bounce
-             (value-of/k expr (empty-env) no-error-handler (end-cont))))
+      (let ((bounce (value-of/k expr (empty-env) #f (end-cont))))
         (expval->val (trampoline bounce))
       )
     )
@@ -85,7 +83,7 @@
   )
 )
 
-; ex 5.35. ex 5.36. using two continuations to implement error
+; ex 5.35. ex 5.36. using two continuations to implement exception
 (define (value-of/k expr env handler cont)
   (define (return v) (apply-cont cont v))
   (cases Expression expr
@@ -167,28 +165,31 @@
     )
 
     ; exceptions
-    (Try (tried ident fallback)
-      (value-of/k tried env (λ (err)
-        (let ((handler-env (extend-env ident (newref err) env)))
-          (value-of/k fallback handler-env handler cont)
-        )
-      ) cont)
+    (Try (tried ident catch-expr)
+      (let ((new-handler (exception-handler ident catch-expr env cont handler)))
+        (value-of/k tried env new-handler cont)
+      )
     )
     (Raise (expr)
-      (value-of/k expr env handler (λ (err)
-        (apply-cont handler err)
-      ))
+      (value-of/k expr env handler (λ (err) (apply-handler handler err)))
     )
 
     ; ex 5.38. division
     (Div (lhs rhs)
       (value-of/k lhs env handler (λ (lval)
         (value-of/k rhs env handler (λ (rval)
-          (if (zero? (expval->num rval)) (handler lval)
+          (if (zero? (expval->num rval)) (apply-handler handler lval)
             (return (num-val (quotient (expval->num lval) (expval->num rval))))
           )
         ))
       ))
+    )
+
+    ; ex 5.39.
+    (Raise_ (expr)
+      (value-of/k expr env handler
+        (λ (err) (apply-handler-with-cont handler err cont))
+      )
     )
   )
 )
@@ -208,13 +209,12 @@
 )
 
 ; trampolined apply-procedure/k
-;
-; ex 5.37.
-; raise exception when procedure is applied with wrong number of arguments
 (define (apply-procedure/k p args env handler cont) (λ ()
   (match p ((Procedure params body penv)
     (if (not (equal? (length args) (length params)))
-      (handler (num-val (length params)))
+      ; ex 5.37.
+      ; raise exception when procedure is applied with wrong number of arguments
+      (apply-handler handler (num-val (length params)))
       (values-of/k args env handler (λ (vals)
         (define refs (map newref vals))
         (value-of/k body (extend-env* params refs penv) handler cont)
@@ -242,6 +242,33 @@
 ; The definition of `bounce` need not to be changed, since
 ; bounce : expval + () -> bounce 
 ; so wrapping arbitrary layer of "() -> " to bounce still produces bounce.
+
+; exception
+; ex 5.35. ex 5.36.
+(struct exception-handler (catch-var catch-expr env cont next-handler))
+(define (apply-handler handler err)
+  (match handler
+    ((exception-handler catch-var catch-expr env cont next-handler)
+      (let ((catch-env (extend-env catch-var (newref err) env)))
+        (value-of/k catch-expr catch-env next-handler cont)
+      )
+    )
+    (#f
+      (printf "uncaught cps exception: ~a\n" (expval->val err))
+      (void-val)
+    )
+  )
+)
+
+; ex 5.39. resume execution from raise expression
+(define (apply-handler-with-cont handler err cont)
+  (match handler
+    ((exception-handler cv ce env _ h)
+      (apply-handler (exception-handler cv ce env cont h) err)
+    )
+    (else (apply-handler handler err))
+  )
+)
 
 ((sllgen:make-rep-loop "sllgen> " value-of-program
    (sllgen:make-stream-parser eopl:lex-spec syntax-spec)))
