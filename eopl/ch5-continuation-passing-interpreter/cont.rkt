@@ -11,7 +11,7 @@
 (define (apply-cont cont v)
   (if (time-expired?)
     (begin
-      (enqueue-thread! (λ () (apply-cont cont v)))
+      (add-to-ready-queue! (λ () (apply-cont cont v)))
       (run-next-thread)
     )
     (begin

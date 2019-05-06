@@ -4,6 +4,7 @@
 (require (submod "../ch4-state/store.rkt" global-mutable))
 (provide (all-defined-out))
 (require "cont.rkt")
+(require "thread/mutex.rkt")
 
 (define-datatype expval expval?
   (num-val (num number?))
@@ -14,6 +15,9 @@
 
   ; ex 5.40
   (cont-val (cont cont?))
+
+  ; mutex
+  (mutex-val (mtx mutex?))
 )
 (define (report-expval-extractor-error type value)
   (error 'type-error "expect value: ~a to be type: ~a" value type)
@@ -48,6 +52,12 @@
     (else (report-expval-extractor-error 'cont val))
   )
 )
+(define (expval->mutex val)
+  (cases expval val
+    (mutex-val (mtx) mtx)
+    (else (report-expval-extractor-error 'mutex val))
+  )
+)
 (define (expval->val val)
   (cases expval val
     (num-val (n) n)
@@ -56,6 +66,7 @@
     (list-val (l) (map expval->val l))
     (void-val () (void))
     (cont-val (c) c)
+    (mutex-val (m) m)
   )
 )
 (struct Procedure (vars body env) #:transparent)

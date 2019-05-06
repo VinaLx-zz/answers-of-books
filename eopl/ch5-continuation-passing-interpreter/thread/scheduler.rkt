@@ -16,7 +16,7 @@
   (set! remaining-time quantum)
 )
 
-(define (enqueue-thread! thread)
+(define (add-to-ready-queue! thread)
   (enqueue! ready-queue thread)
 )
 

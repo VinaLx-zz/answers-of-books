@@ -5,6 +5,7 @@
 (require (submod "../ch4-state/store.rkt" global-mutable))
 (require "cont.rkt")
 (require "thread/scheduler.rkt")
+(require "thread/mutex.rkt")
 
 (sllgen:define syntax-spec
   '((Program (Expression) a-program)
@@ -76,6 +77,10 @@
 
     ; thread
     (Expression ("spawn" "(" Expression ")") Spawn)
+
+    (Expression ("mutex" "(" ")") Mutex)
+    (Expression ("lock" "(" Expression ")") Lock)
+    (Expression ("unlock" "(" Expression ")") Unlock)
   )
 )
 
@@ -86,7 +91,7 @@
   (cases Program pgm
     (a-program (expr)
       (initialize-store!)
-      (initialize-scheduler! 3)
+      (initialize-scheduler! 1)
       (let ((bounce (value-of/k expr (empty-env) #f end-main-thread)))
         (expval->val (trampoline bounce))
       )
@@ -269,8 +274,24 @@
 
     (Spawn (expr)
       (value-of/k expr env handler (λ (p)
-        (enqueue-thread! (λ ()
+        (add-to-ready-queue! (λ ()
           (apply-procedure/k (expval->proc p) null env #f end-subthread)))
+        (apply-cont cont (void-val))
+      ))
+    )
+
+    (Mutex () (apply-cont cont (mutex-val (new-mutex))))
+
+    (Lock (mexpr)
+      (value-of/k mexpr env handler (λ (m)
+        (mutex-lock! (expval->mutex m)
+          (λ () (apply-cont cont (void-val)))
+        )
+      ))
+    )
+    (Unlock (mexpr) 
+      (value-of/k mexpr env handler (λ (m)
+        (mutex-unlock! (expval->mutex m))
         (apply-cont cont (void-val))
       ))
     )
@@ -362,5 +383,50 @@
   )
 )
 
-((sllgen:make-rep-loop "sllgen> " value-of-program
-   (sllgen:make-stream-parser eopl:lex-spec syntax-spec)))
+(define run-source (compose value-of-program parse))
+
+(define thread-example "
+let buffer = 0
+in let producer = proc ()
+  letrec wait(k) =
+    if zero?(k)
+    then set buffer = 42
+    else
+      begin print(-(k, -200))
+          ; (wait -(k, 1))
+      end
+  in (wait 5)
+in let consumer = proc ()
+  letrec wait(k) =
+    if zero?(buffer)
+    then
+      begin print(-(k, -100))
+          ; (wait -(k, -1))
+      end
+    else buffer
+in (wait 0)
+in
+begin spawn(producer)
+    ; print(300)
+    ; (consumer)
+end
+")
+
+(define mutex-example "
+let x = 0 in
+let mut = mutex() in
+let incrx = proc () begin
+  lock(mut);
+  set x = -(x, -1);
+  unlock(mut);
+  print(x)
+end in
+begin spawn(incrx) ; spawn(incrx) ; spawn(incrx)
+    ; spawn(incrx) ; spawn(incrx) ; spawn(incrx)
+end
+")
+
+(provide (all-defined-out))
+
+; ((sllgen:make-rep-loop "sllgen> " value-of-program
+   ; (sllgen:make-stream-parser eopl:lex-spec syntax-spec)))
