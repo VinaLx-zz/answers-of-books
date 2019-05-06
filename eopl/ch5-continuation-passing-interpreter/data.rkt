@@ -1,7 +1,7 @@
 #lang racket
 
 (require "../eopl.rkt")
-(require "../ch4-state/store.rkt")
+(require (submod "../ch4-state/store.rkt" global-mutable))
 (provide (all-defined-out))
 (require "cont.rkt")
 
@@ -90,7 +90,7 @@
           (match proc-info ((ProcInfo _ params body)
             (newref (make-procedure-val params body env))
           ))
-          (apply-env env qvar)
+          (apply-env env2 qvar)
         )
       )
     )

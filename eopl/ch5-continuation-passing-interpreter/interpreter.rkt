@@ -4,6 +4,7 @@
 (require "../eopl.rkt")
 (require (submod "../ch4-state/store.rkt" global-mutable))
 (require "cont.rkt")
+(require "thread/scheduler.rkt")
 
 (sllgen:define syntax-spec
   '((Program (Expression) a-program)
@@ -14,6 +15,7 @@
     (Expression ("zero?" "(" Expression ")") Zero?)
     (Expression ("not" "(" Expression ")") Not)
     (Expression ("if" Expression "then" Expression "else" Expression) If)
+    (Expression ("print" "(" Expression ")") Print)
 
     (Expression
       ("proc" "(" (separated-list identifier ",") ")" Expression)
@@ -67,11 +69,13 @@
     (Expression ("letcc" identifier "in" Expression) Letcc)
 
     ; ex 5.44. relation between callcc/letcc/throw
-    ; part 1.
     (Expression ("callcc") CallCC)
 
     (Expression ("letcc_" identifier "in" Expression) Letcc_)
     (Expression ("throw_" Expression "to" Expression) Throw_)
+
+    ; thread
+    (Expression ("spawn" "(" Expression ")") Spawn)
   )
 )
 
@@ -82,7 +86,8 @@
   (cases Program pgm
     (a-program (expr)
       (initialize-store!)
-      (let ((bounce (value-of/k expr (empty-env) #f (end-cont))))
+      (initialize-scheduler! 3)
+      (let ((bounce (value-of/k expr (empty-env) #f end-main-thread)))
         (expval->val (trampoline bounce))
       )
     )
@@ -118,6 +123,12 @@
     (Zero? (expr)
       (value-of/k expr env handler (λ (val)
         (return (bool-val (zero? (expval->num val))))
+      ))
+    )
+    (Print (expr)
+      (value-of/k expr env handler (λ (val)
+        (printf "~a\n" (expval->val val))
+        (apply-cont cont (void-val))
       ))
     )
     (If (test texpr fexpr)
@@ -253,6 +264,16 @@
       (Call kexpr (list vexpr))
       env handler cont
     ))
+
+    ; thread
+
+    (Spawn (expr)
+      (value-of/k expr env handler (λ (p)
+        (enqueue-thread! (λ ()
+          (apply-procedure/k (expval->proc p) null env #f end-subthread)))
+        (apply-cont cont (void-val))
+      ))
+    )
   )
 )
 
@@ -340,9 +361,6 @@
     (else (apply-handler handler err cont))
   )
 )
-
-; (require racket/trace)
-; (trace value-of/k)
 
 ((sllgen:make-rep-loop "sllgen> " value-of-program
    (sllgen:make-stream-parser eopl:lex-spec syntax-spec)))
