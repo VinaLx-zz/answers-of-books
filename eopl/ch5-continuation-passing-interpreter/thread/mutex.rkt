@@ -2,6 +2,7 @@
 
 (require data/queue)
 (require "scheduler.rkt")
+(require "thread.rkt")
 
 (provide (all-defined-out))
 
@@ -20,7 +21,7 @@
       )
       (begin
         (set-mutex-locked! mtx #t)
-        (thread)
+        (run-thread thread)
       )
     )
   ))

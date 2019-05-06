@@ -4,7 +4,9 @@
 (require (submod "../ch4-state/store.rkt" global-mutable))
 (provide (all-defined-out))
 (require "cont.rkt")
+(require "thread/thread.rkt")
 (require "thread/mutex.rkt")
+(require "thread/condition-variable.rkt")
 
 (define-datatype expval expval?
   (num-val (num number?))
@@ -18,6 +20,12 @@
 
   ; mutex
   (mutex-val (mtx mutex?))
+
+  ; ex 5.51. ex 5.57.
+  (condvar-val (cond-var condition-variable?))
+
+  ; ex 5.53. thread id
+  (tid-val (id thread-id?))
 )
 (define (report-expval-extractor-error type value)
   (error 'type-error "expect value: ~a to be type: ~a" value type)
@@ -58,6 +66,18 @@
     (else (report-expval-extractor-error 'mutex val))
   )
 )
+(define (expval->condvar val)
+  (cases expval val
+    (condvar-val (cv) cv)
+    (else (report-expval-extractor-error 'cond-var val))
+  )
+)
+(define (expval->tid val)
+  (cases expval val
+    (tid-val (tid) tid)
+    (else (report-expval-extractor-error 'thread-id val))
+  )
+)
 (define (expval->val val)
   (cases expval val
     (num-val (n) n)
@@ -67,6 +87,8 @@
     (void-val () (void))
     (cont-val (c) c)
     (mutex-val (m) m)
+    (condvar-val (cv) cv)
+    (tid-val (t) t)
   )
 )
 (struct Procedure (vars body env) #:transparent)

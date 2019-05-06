@@ -6,6 +6,9 @@
 (require "cont.rkt")
 (require "thread/scheduler.rkt")
 (require "thread/mutex.rkt")
+(require "thread/thread.rkt")
+(require "thread/condition-variable.rkt")
+(require "thread/store.rkt")
 
 (sllgen:define syntax-spec
   '((Program (Expression) a-program)
@@ -81,6 +84,24 @@
     (Expression ("mutex" "(" ")") Mutex)
     (Expression ("lock" "(" Expression ")") Lock)
     (Expression ("unlock" "(" Expression ")") Unlock)
+
+    ; ex 5.45. yield
+    (Expression ("yield" "(" ")") Yield)
+
+    ; ex 5.51. ex 5.57. conditional variable
+    (Expression ("condvar" "(" Expression ")") CondVar)
+    (Expression ("cv-wait" "(" Expression ")") CondWait)
+    (Expression ("cv-notify" "(" Expression ")") CondNotify)
+
+    ; ex 5.53. thread identifier
+    (Expression ("this-tid" "(" ")") ThisTid)
+
+    ; ex 5.54. kill
+    (Expression ("kill" "(" Expression ")") Kill)
+
+    ; ex 5.55. ex 5.56. inter-threaded communication
+    (Expression ("send" "(" Expression "," Expression ")") Send)
+    (Expression ("receive" "(" ")") Receive)
   )
 )
 
@@ -91,6 +112,7 @@
   (cases Program pgm
     (a-program (expr)
       (initialize-store!)
+      (initialize-thread-stores!)
       (initialize-scheduler! 1)
       (let ((bounce (value-of/k expr (empty-env) #f end-main-thread)))
         (expval->val (trampoline bounce))
@@ -274,27 +296,78 @@
 
     (Spawn (expr)
       (value-of/k expr env handler (λ (p)
-        (add-to-ready-queue! (λ ()
-          (apply-procedure/k (expval->proc p) null env #f end-subthread)))
-        (apply-cont cont (void-val))
+        (define tid (new-thread-id!))
+        (add-to-ready-queue!
+          (thread tid (λ ()
+            (apply-procedure/k (expval->proc p) null env #f end-subthread)))
+        )
+        (return (tid-val tid))
       ))
     )
 
-    (Mutex () (apply-cont cont (mutex-val (new-mutex))))
+    (Mutex () (return (mutex-val (new-mutex))))
 
     (Lock (mexpr)
       (value-of/k mexpr env handler (λ (m)
         (mutex-lock! (expval->mutex m)
-          (λ () (apply-cont cont (void-val)))
+          (wrap-current-thread (λ () (return (void-val))))
         )
       ))
     )
     (Unlock (mexpr) 
       (value-of/k mexpr env handler (λ (m)
         (mutex-unlock! (expval->mutex m))
+        (return (void-val))
+      ))
+    )
+
+    ; ex 5.45.
+    (Yield ()
+      (yield-current-thread (λ () (return (void-val))))
+    )
+
+    ; ex 5.51. ex 5.57
+    (CondVar (expr)
+      (value-of/k expr env handler (λ (mtx)
+        (return (condvar-val (make-cond-var (expval->mutex mtx))))
+      ))
+    )
+
+    (CondWait (expr)
+      (value-of/k expr env handler (λ (cv)
+        (cv-wait! (expval->condvar cv)
+          (wrap-current-thread (λ () (return (void-val))))
+        )
+      ))
+    )
+    (CondNotify (expr)
+      (value-of/k expr env handler (λ (cv)
+        (cv-notify! (expval->condvar cv))
         (apply-cont cont (void-val))
       ))
     )
+
+    ; ex 5.53
+    (ThisTid () (return (tid-val current-thread-id)))
+
+    ; ex 5.54.
+    (Kill (expr)
+      (value-of/k expr env handler (λ (t)
+        (return (bool-val (remove-from-ready! (expval->tid t))))
+      ))
+    )
+    
+    ; ex 5.55. ex 5.56.
+    (Send (texpr vexpr)
+      (value-of/k texpr env handler (λ (tval)
+        (define tid (expval->tid tval))
+        (value-of/k vexpr env handler (λ (val)
+          (send-value tid val)
+          (return (void-val))
+        ))
+      ))
+    )
+    (Receive () (receive-value cont))
   )
 )
 
@@ -383,7 +456,7 @@
   )
 )
 
-(define run-source (compose value-of-program parse))
+(define run (compose value-of-program parse))
 
 (define thread-example "
 let buffer = 0
@@ -412,18 +485,114 @@ begin spawn(producer)
 end
 ")
 
+; ex 5.52. return the final result of x using mutex
 (define mutex-example "
-let x = 0 in
-let mut = mutex() in
-let incrx = proc () begin
-  lock(mut);
-  set x = -(x, -1);
-  unlock(mut);
-  print(x)
-end in
+let x = 0
+    counter = 6
+    mut = mutex()
+    count-mtx = mutex() in
+let incrx = proc ()
+begin lock(mut)
+    ; set x = -(x, -1)
+    ; unlock(mut)
+    ; lock(count-mtx)
+    ; set counter = -(counter, 1)
+    ; unlock(count-mtx)
+end
+in
 begin spawn(incrx) ; spawn(incrx) ; spawn(incrx)
     ; spawn(incrx) ; spawn(incrx) ; spawn(incrx)
+    ; letrec wait-subthreads () =
+        if zero?(counter)
+        then x
+        else (wait-subthreads)
+      in (wait-subthreads)
 end
+")
+
+(define yield-example "
+let p = proc()
+  begin print(1)
+      ; yield()
+      ; print(2)
+      ; yield()
+      ; print(3)
+  end
+in
+  begin spawn(p)
+      ; print(100)
+      ; yield()
+      ; print(200)
+      ; yield()
+      ; print(300)
+  end
+")
+
+(define condvar-example "
+let buffer = 0 mtx = mutex()
+in let cv = condvar(mtx)
+in let producer = proc ()
+  letrec wait(k) =
+    if zero?(k)
+    then
+    begin lock(mtx)
+        ; set buffer = 42
+        ; cv-notify(cv)
+        ; unlock(mtx)
+    end
+    else (wait -(k, 1))
+  in (wait 5)
+in let consumer = proc ()
+begin lock(mtx)
+    ; cv-wait(cv)
+    ; let result = buffer
+       in begin unlock(mtx); result end
+end
+in
+begin spawn(producer)
+    ; (consumer)
+end
+")
+
+(define tid-example "
+let p = proc() 1
+    x = 0
+in
+begin set x = spawn(p)
+    ; print(x)
+    ; set x = spawn(p)
+    ; print(x)
+    ; set x = spawn(p)
+    ; print(x)
+end
+")
+
+(define kill-example "
+letrec sleep(t) = if zero?(t) then 0 else (sleep -(t, 1))
+in let sleep-thread = proc (n) proc () (sleep n)
+in let t1 = spawn((sleep-thread 50))
+       t2 = spawn((sleep-thread 1))
+in let b1 = kill(t1)
+in
+begin (sleep 10)
+    ; let b2 = kill(t2)
+       in begin print(b1)
+              ; print(b2)
+          end
+end
+")
+
+(define comm-example "
+let p1 = proc()
+  let t2 = receive() v = receive()
+   in begin print(v); send(t2, -(v, -1)) end
+in let t1 = spawn(p1)
+in let p2 = proc()
+  begin send(t1, this-tid())
+      ; send(t1, 10)
+      ; let b = receive() in print(b)
+  end
+in spawn(p2)
 ")
 
 (provide (all-defined-out))

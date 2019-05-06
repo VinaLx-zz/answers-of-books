@@ -10,10 +10,7 @@
 
 (define (apply-cont cont v)
   (if (time-expired?)
-    (begin
-      (add-to-ready-queue! (λ () (apply-cont cont v)))
-      (run-next-thread)
-    )
+    (yield-current-thread (λ () (apply-cont cont v)))
     (begin
       (decrement-timer!)
       (cont v)
