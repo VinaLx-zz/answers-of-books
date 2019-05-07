@@ -140,7 +140,7 @@
           (match proc-info ((ProcInfo _ params body)
             (make-procedure-val params body env)
           ))
-          (apply-env env qvar)
+          (apply-env env2 qvar)
         )
       )
     )
