@@ -38,9 +38,18 @@
   ; ex 6.36.
   (Expression ("begin" (separated-list Expression ";") "end") Begin_)
 
-  ; non-local control
+  ;; non-local control
+
+  ; ex 6.39. implement letcc and throw
   (Expression ("letcc" identifier "in" Expression) LetCC)
   (Expression ("throw" Expression "to" Expression) Throw)
+
+  ; ex 6.40. implement try catch and raise
+  (Expression
+    ("try" Expression "catch" "(" identifier ")" Expression)
+    TryCatch)
+
+  (Expression ("raise" Expression) Raise)
 ))
 
 ; ex 6.19
