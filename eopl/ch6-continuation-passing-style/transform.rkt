@@ -18,8 +18,10 @@
     (a-program (expr) (tf-program (tailform-of-expr expr)))
   )
 )
+(define cps-end-cont (make-cps-cont (λ (rvar) (TfSimple rvar))))
+
 (define (tailform-of-expr expr)
-  (cps-of-expr expr #f)
+  (cps-of-expr expr cps-end-cont)
 )
 
 (define ((send-to-cont k) simple-expr)
@@ -29,7 +31,7 @@
       ; translate `(Call Proc(r) body param)` to `let r = param in body`
       ;
       ; (TfLet (list r) (list simple-expr) body)
-      
+
       ; ex 6.26. substitute the result variable with the simple-expr
       (inline-var-binding body r simple-expr)
     )))
@@ -37,13 +39,9 @@
   )
 )
 
-(define cps-end-cont (make-cps-cont (λ (rvar) (TfSimple rvar))))
-
 (define (cps-of-expr input-expr k)
-  (define apply-cont
-    (if k (send-to-cont k) TfSimple)
-  )
-  (define (entity-of k) (if k k cps-end-cont))
+  (define apply-cont (send-to-cont k))
+
   (cases Expression input-expr
     ; ex 6.25. arbitrary amount of binding in `let`
     (Let (vars vals body) (cps-of-let vars vals body k))
@@ -57,10 +55,51 @@
     (Call (proc args)
       (extract-simple proc (λ (sproc)
         (extract-simples args (λ (sargs)
-          (TfCall sproc (append sargs (list (entity-of k))))
+          (TfCall sproc (append sargs (list k)))
         ))
       ))
     )
+
+    (Print (expr)
+      (extract-simple expr (λ (sexpr)
+        (TfPrint sexpr (apply-cont (SNum 0)))
+      ))
+    )
+
+    (NewRef (expr)
+      (extract-simple expr (λ (sexpr) (TfNewRef sexpr k)))
+    )
+
+    (Deref (expr)
+      (extract-simple expr (λ (sexpr) (TfDeref sexpr k)))
+    )
+
+    (SetRef (rexpr vexpr)
+      (extract-simple rexpr (λ (srexpr)
+        (extract-simple vexpr (λ (svexpr)
+          (TfSetRef srexpr svexpr (apply-cont (SNum 0)))
+        ))
+      ))
+    )
+
+    ; ex 6.36
+    (Begin_ (exprs)
+      (extract-simples exprs (λ (sexprs)
+        (apply-cont (last sexprs))
+      ))
+    )
+
+    (LetCC (ccvar expr)
+      (TfLet (list ccvar) (list k) (cps-of-expr expr k))
+    )
+    (Throw (vexpr contexpr)
+      (extract-simple contexpr (λ (scont)
+        (extract-simple vexpr (λ (sval)
+          ((send-to-cont scont) sval)
+        ))
+      ))
+    )
+
     (else (extract-simple input-expr apply-cont))
   )
 )
@@ -150,10 +189,13 @@
       (SVar (v) (if (equal? v ident) sexpr input-expr))
       (SNum (n) input-expr)
       (SDiff (lhs rhs) (SDiff (inline-simple lhs) (inline-simple rhs)))
-      (SSum (exprs) (SSum (map inline-simple exprs)))
+      (SSum (exprs) (SSum (inline-simples exprs)))
       (SZero? (expr) (SZero? (inline-simple expr)))
-      (SProc (params body) (inline-tailform body))
+      (SProc (params body) (SProc params (inline-tailform body)))
     )
+  )
+  (define (inline-simples exprs)
+    (map inline-simple exprs)
   )
   (define (inline-tailform input-expr)
     (inline-var-binding input-expr ident sexpr)
@@ -161,19 +203,33 @@
   (cases TailFormExpr input-expr
     (TfSimple (simple) (TfSimple (inline-simple simple)))
     (TfLet (vars simples tail)
-      (TfLet vars simples (inline-tailform tail))
+      (TfLet vars (inline-simples simples) (inline-tailform tail))
     )
     (TfIf (test iftrue iffalse)
-      (TfIf test
+      (TfIf (inline-simple test)
         (inline-tailform iftrue) (inline-tailform iffalse))
     )
-    (TfCall (proc args) (TfCall proc (map inline-simple args)))
+    (TfCall (proc args)
+      (TfCall (inline-simple proc) (inline-simples args))
+    )
     (TfLetrec (defs body)
       (TfLetrec defs (inline-tailform body))
     )
+    (TfPrint (simple tail)
+      (TfPrint (inline-simple simple) (inline-tailform tail))
+    )
+    (TfNewRef (sexpr scont)
+      (TfNewRef (inline-simple sexpr) (inline-simple scont))
+    )
+    (TfDeref (sref scont)
+      (TfDeref (inline-simple sref) (inline-simple scont))
+    )
+    (TfSetRef (sref sexpr tail)
+      (TfSetRef
+        (inline-simple sref) (inline-simple sexpr) (inline-tailform tail))
+    )
   )
 )
-
 
 ; ex 6.27. eliminate the useless assignment from `let`
 (define (cps-of-let vars vals body k)

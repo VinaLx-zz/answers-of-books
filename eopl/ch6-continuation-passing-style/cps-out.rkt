@@ -3,6 +3,7 @@
 (provide (all-defined-out))
 (require "data.rkt")
 (require "../eopl.rkt")
+(require (submod "../ch4-state/store.rkt" global-mutable))
 
 (sllgen:define cps-out-syntax '(
   (TfProgram (TailFormExpr) tf-program)
@@ -28,6 +29,15 @@
 
   (TailFormExpr ("(" SimpleExpr (arbno SimpleExpr) ")") TfCall)
 
+  ; tail-formed computational effect
+  (TailFormExpr ("print" "(" SimpleExpr ")" ";" TailFormExpr) TfPrint)
+
+  (TailFormExpr ("newrefk" "(" SimpleExpr "," SimpleExpr ")") TfNewRef)
+  (TailFormExpr ("derefk" "(" SimpleExpr "," SimpleExpr ")") TfDeref)
+  (TailFormExpr
+    ("setref" "(" SimpleExpr "," SimpleExpr ")" ";" TailFormExpr)
+    TfSetRef)
+
   ; Simple Expression
   (SimpleExpr (number) SNum)
   (SimpleExpr (identifier) SVar)
@@ -46,6 +56,7 @@
 (define (eval-cps-out program)
   (cases TfProgram program
     (tf-program (tfexpr)
+      (initialize-store!)
       (expval->val (eval-tailform tfexpr (empty-env)))
     )
   )
@@ -68,6 +79,26 @@
     )
     (TfCall (proc args)
       (apply-procedure (expval->proc (seval proc)) (map seval args))
+    )
+    (TfPrint (sexpr tfexpr)
+      (printf "~a\n" (expval->val (seval sexpr)))
+      (eval tfexpr)
+    )
+    (TfNewRef (sexpr cont)
+      (let ((ref (newref (seval sexpr))))
+        (apply-procedure (expval->proc (seval cont)) (list (ref-val ref)))
+      )
+    )
+    (TfDeref (sexpr cont)
+      (let ((ref (expval->ref (seval sexpr))))
+        (apply-procedure (expval->proc (seval cont)) (list (deref ref)))
+      )
+    )
+    (TfSetRef (rexpr sexpr tfexpr)
+      (let ((ref (expval->ref (seval rexpr))))
+        (setref! ref (seval sexpr))
+        (eval tfexpr)
+      )
     )
   )
 )

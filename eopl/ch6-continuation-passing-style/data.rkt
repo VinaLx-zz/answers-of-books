@@ -2,11 +2,14 @@
 
 (require "../eopl.rkt")
 (provide (all-defined-out))
+(require (submod "../ch4-state/store.rkt" global-mutable))
+
 
 (define-datatype expval expval?
   (num-val (num number?))
   (bool-val (bool boolean?))
   (proc-val (proc Procedure?))
+  (ref-val (ref reference?))
 )
 
 (define (report-expval-extractor-error type value)
@@ -26,11 +29,19 @@
   )
 )
 
+(define (expval->ref val)
+  (cases expval val
+    (ref-val (ref) ref)
+    (else (report-expval-extractor-error 'reference val))
+  )
+)
+
 (define (expval->val val)
   (cases expval val
     (num-val (n) n)
     (bool-val (b) b)
     (proc-val (p) p)
+    (ref-val (r) r)
   )
 )
 

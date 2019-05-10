@@ -27,6 +27,20 @@
     MkProcDef)
 
   (Expression ("letrec" (arbno ProcDef) "in" Expression) Letrec)
+
+  ; computational effects
+  (Expression ("print" "(" Expression ")") Print)
+
+  (Expression ("newref" "(" Expression ")") NewRef)
+  (Expression ("deref" "(" Expression ")") Deref)
+  (Expression ("setref" "(" Expression "," Expression ")") SetRef)
+
+  ; ex 6.36.
+  (Expression ("begin" (separated-list Expression ";") "end") Begin_)
+
+  ; non-local control
+  (Expression ("letcc" identifier "in" Expression) LetCC)
+  (Expression ("throw" Expression "to" Expression) Throw)
 ))
 
 ; ex 6.19
@@ -47,6 +61,8 @@
       (and (is-tailform body) (andmap def-is-tailform defs))
     )
     (Call (proc args) (andmap is-tailform-simple (cons proc args)))
+
+    (Print (expr) (is-tailform expr))
 
     (else (is-tailform-simple expr))
   )
