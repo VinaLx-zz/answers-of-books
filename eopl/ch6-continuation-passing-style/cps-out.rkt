@@ -5,7 +5,7 @@
 (require "../eopl.rkt")
 
 (sllgen:define cps-out-syntax '(
-  (Program (TailFormExpr) a-program)
+  (TfProgram (TailFormExpr) tf-program)
 
   ; Tail Form Expression 
   (TailFormExpr (SimpleExpr) TfSimple)
@@ -44,8 +44,8 @@
 
 ; 6.14. complete the definition for value-of-program (here is eval-cps-out)
 (define (eval-cps-out program)
-  (cases Program program
-    (a-program (tfexpr)
+  (cases TfProgram program
+    (tf-program (tfexpr)
       (expval->val (eval-tailform tfexpr (empty-env)))
     )
   )
