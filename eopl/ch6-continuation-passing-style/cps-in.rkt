@@ -31,12 +31,11 @@
   ; computational effects
   (Expression ("print" "(" Expression ")") Print)
 
-  (Expression ("newref" "(" Expression ")") NewRef)
-  (Expression ("deref" "(" Expression ")") Deref)
-  (Expression ("setref" "(" Expression "," Expression ")") SetRef)
-
   ; ex 6.36.
   (Expression ("begin" (separated-list Expression ";") "end") Begin_)
+
+  ; ex 6.37. implicit reference
+  (Expression ("set" identifier "=" Expression) Set)
 
   ;; non-local control
 

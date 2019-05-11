@@ -31,13 +31,13 @@
 (define ((send-to-cont k) simple-expr)
   (cases SimpleExpr k
     (SProc (params body) (match params ((list r)
-      ; ex 6.22.
-      ; translate `(Call Proc(r) body param)` to `let r = param in body`
-      ;
-      ; (TfLet (list r) (list simple-expr) body)
+    ; ex 6.22.
+    ; translate `(Call Proc(r) body param)` to `let r = param in body`
+    ;
+      (TfLet (list r) (list simple-expr) body)
 
-      ; ex 6.26. substitute the result variable with the simple-expr
-      (inline-var-binding body r simple-expr)
+    ; ex 6.26. substitute the result variable with the simple-expr
+    ; (inline-var-binding body r simple-expr)
     )))
     (else (TfCall k (list simple-expr)))
   )
@@ -60,7 +60,9 @@
     (Call (proc args)
       (extract-simple proc failk (λ (sproc)
         (extract-simples args failk (λ (sargs)
-          (TfCall sproc (append sargs (list k failk)))
+          (newrefs sargs
+            (λ (refs) (TfCall sproc (append refs (list k failk))))
+          )
         ))
       ))
     )
@@ -71,22 +73,6 @@
       ))
     )
 
-    (NewRef (expr)
-      (extract-simple expr failk (λ (sexpr) (TfNewRef sexpr k)))
-    )
-
-    (Deref (expr)
-      (extract-simple expr failk (λ (sexpr) (TfDeref sexpr k)))
-    )
-
-    (SetRef (rexpr vexpr)
-      (extract-simple rexpr failk (λ (srexpr)
-        (extract-simple vexpr failk (λ (svexpr)
-          (TfSetRef srexpr svexpr (success (SNum 0)))
-        ))
-      ))
-    )
-
     ; ex 6.36
     (Begin_ (exprs)
       (extract-simples exprs failk (λ (sexprs)
@@ -94,9 +80,20 @@
       ))
     )
 
+    ; ex 6.37. implicit reference
+    (Set (ident expr)
+      (extract-simple expr failk (λ (sexpr)
+        (TfSetRef (SVar ident) sexpr (success (SNum 0)))
+      ))
+    )
+
+    (Var (v) (TfDeref (SVar v) k))
+
     ; ex 6.39.
     (LetCC (ccvar expr)
-      (TfLet (list ccvar) (list k) (cps-of-expr expr k failk))
+      (with-newref k (λ (kref)
+        (TfLet (list ccvar) (list kref) (cps-of-expr expr k failk))
+      ))
     )
 
     (Throw (vexpr contexpr)
@@ -109,15 +106,20 @@
 
     ; ex 6.40.
     (TryCatch (try-expr evar catch-expr)
+      (define catch-tail (cps-of-expr catch-expr k failk))
       (cps-of-expr try-expr k
-        (make-cps-cont #:param-name evar
-          (λ (rvar) (cps-of-expr catch-expr k failk)))
+        (make-cps-cont #:param-name 'err-val (λ (err-val)
+          (with-newref err-val (λ (rref)
+            (TfLet (list evar) (list rref) catch-tail)
+          ))
+        ))
       )
     )
 
     (Raise (expr)
       (extract-simple expr failk (λ (sexpr) (fail sexpr)))
     )
+
 
     (else (extract-simple input-expr failk success))
   )
@@ -129,9 +131,9 @@
 ; the concrete implementation.
 (define (extract-simple input-expr failk cont
            #:new-cont-param (new-cont-param #f))
+  (define (make-cont f) (make-cps-cont #:param-name new-cont-param f))
   (cases Expression input-expr
     (Num (n) (cont (SNum n)))
-    (Var (v) (cont (SVar v)))
     (Zero? (expr)
       (extract-simple expr failk (λ (r)
         (cont (SZero? r))
@@ -152,10 +154,7 @@
     (Proc (params body) (cont (cps-of-proc-decl params body SProc)))
 
     (else
-      (cps-of-expr
-        input-expr
-        (make-cps-cont #:param-name new-cont-param (λ (rvar) (cont rvar)))
-        failk)
+      (cps-of-expr input-expr (make-cont (λ (rvar) (cont rvar))) failk)
     )
   )
 )
@@ -254,29 +253,53 @@
   )
 )
 
-; ex 6.27. eliminate the useless assignment from `let`
+; ex 6.27. eliminate the useless assignment from `let`.
+; Unfortunately this optimization isn't compatible with transforming implicit
+; reference language to tail-formed explicit reference language, since passing
+; variable through continuation doesn't (and shouldn't) create additional
+; reference. So the attempt to treat the parameter of continuation as a
+; reference would fail if we apply this optimization.
+; So we can only do it in the original way by creating a reference for each
+; simple expression extracted and bind to the 'let' variable manually.
 (define (cps-of-let vars vals body k failk)
-  (define (pick-non-simple-vars vars vals letk)
-    (match* (vars vals)
-      (((quote ()) (quote())) (letk null null))
-      (((cons var vars1) (cons val vals1))
-        (extract-simple val failk #:new-cont-param var (λ (sval)
-          (pick-non-simple-vars vars1 vals1 (λ (svars svals)
-            (cases SimpleExpr sval
-              (SVar (v) (letk svars svals))
-              (else (letk (cons var svars) (cons sval svals)))
-            )
-          ))
-        )) ; extract simple with suggest variable name 'var'
-      )
+  (define (sexpr-is-var expr var)
+    (cases SimpleExpr expr
+      (SVar (v) (equal? v var))
+      (else false)
     )
   )
-  (define let-body (cps-of-expr body k failk))
-  (pick-non-simple-vars vars vals (λ (svars svals)
-    (if (null? svars) let-body
-      (TfLet svars svals let-body)
+  (match* (vars vals)
+    (((quote ()) (quote ())) (cps-of-expr body k failk))
+    (((cons var vars1) (cons val vals1))
+      (define let-tail (cps-of-let vars1 vals1 body k failk))
+      (extract-simple val failk #:new-cont-param var (λ (sval)
+        (if (sexpr-is-var sval var) let-tail
+          (TfNewRef sval (make-cps-cont #:param-name var (λ (rvar) let-tail)))
+        )
+      ))
     )
-  ))
+  )
+)
+
+; ex 6.37.
+(define (newrefs simples cont)
+  (match simples
+    ((quote ()) (cont null))
+    ((cons simple simples1)
+      (define refk (make-cps-cont #:param-name (gensym 'ref) (λ (ref) 
+        (newrefs simples1 (λ (refs) (cont (cons ref refs))))
+      )))
+      (TfNewRef simple refk)
+    )
+  )
+)
+
+(define (with-newref simple cont)
+  (TfNewRef simple
+    (make-cps-cont #:param-name (gensym 'ref)
+      (λ (refvar) (cont refvar))
+    )
+  )
 )
 
 
@@ -287,7 +310,11 @@
   (pretty-print (tailform-of-program p))
 )
 
-(define transform-and-eval (compose eval-cps-out tailform-of-program))
+(define (transform-and-eval cps-in-program)
+  (define cps-out-program (tailform-of-program cps-in-program))
+  (pretty-print cps-out-program)
+  (eval-cps-out cps-out-program)
+)
 
-((sllgen:make-rep-loop "cps-in> " transform-and-eval
+((sllgen:make-rep-loop "cps-in> " transform-and-eval 
    (sllgen:make-stream-parser eopl:lex-spec cps-in-syntax)))

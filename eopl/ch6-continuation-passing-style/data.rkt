@@ -87,7 +87,7 @@
              (proc-info (findf predicate proc-infos)))
         (if proc-info
           (match proc-info ((ProcInfo _ params body)
-            (make-procedure-val params body env)
+            ((compose ref-val newref) (make-procedure-val params body env))
           ))
           (apply-env env2 qvar)
         )
