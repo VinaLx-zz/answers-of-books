@@ -1,0 +1,416 @@
+#lang racket
+
+(provide (all-defined-out))
+(require "../../eopl.rkt")
+
+(sllgen:define inferred-syntax '(
+  (Program (Expression) a-program)
+
+  (Expression (number) Num)
+  (Expression (identifier) Var)
+  (Expression ("-" "(" Expression "," Expression ")") Diff)
+  (Expression ("zero?" "(" Expression ")") Zero?)
+  (Expression ("if" Expression "then" Expression "else" Expression) If)
+
+  (OptionalType ("?") OInfer)
+  (OptionalType (Type) OType)
+
+  (Type ("bool") TBool)
+  (Type ("int") TInt)
+  (Type ("(" (separated-list Type ",") "->" Type ")") TFunc)
+
+  (Type ("%tvar" number) TVar)
+
+  ; ex 7.23. pair
+  (Type ("pair" Type Type) TPair)
+
+  (Expression ("newpair" "(" Expression "," Expression ")") NewPair)
+  (Expression
+    ("unpair" identifier identifier "=" Expression "in" Expression)
+    Unpair)
+
+  ; ex 7.24. extended let, proc, letrec, call
+  (Expression
+    ("let" (arbno identifier "=" Expression) "in" Expression)
+    Let)
+
+  (Expression
+    ("proc" "(" (separated-list identifier ":" OptionalType ",") ")" Expression)
+    Proc)
+
+  (Expression ("(" Expression (arbno Expression) ")") Call)
+
+  (LetrecDef
+    (OptionalType identifier
+     "(" (separated-list identifier ":" OptionalType ",") ")" "=" Expression)
+    MkLetrecDef)
+
+  (Expression
+    ("letrec" (arbno LetrecDef) "in" Expression)
+    Letrec)
+
+  ; ex 7.25. nil
+  (Type ("list" Type) TList)
+
+  (Expression ("nil") Nil)
+
+  ; ex 7.26. explicit reference
+  (Type ("ref" Type) TRef)
+  (Type ("unit") TUnit)
+
+  (Expression ("newref" "(" Expression ")") NewRef)
+  (Expression ("deref" "(" Expression ")") Deref)
+  (Expression ("setref" "(" Expression "," Expression ")") SetRef)
+))
+
+(sllgen:make-define-datatypes eopl:lex-spec inferred-syntax)
+
+(define (map-type-var t f)
+  (define (recurse t) (map-type-var t f))
+  (cases Type t
+    (TInt () (TInt))
+    (TBool () (TBool))
+    (TUnit () (TUnit))
+    (TFunc (args-t ret-t)
+      (TFunc (map recurse args-t) (recurse ret-t))
+    )
+    (TVar (n) (f n))
+    (TPair (t1 t2) (TPair (recurse t1) (recurse t2)))
+    (TList (elem-t) (TList (recurse elem-t)))
+    (TRef (elem-t) (TRef (recurse elem-t)))
+  )
+)
+
+(define (occur-in? nvar t)
+  (define (recurse t) (occur-in? nvar t))
+  (cases Type t
+    (TInt () false)
+    (TBool () false)
+    (TUnit () false)
+    (TFunc (args-t ret-t)
+      (or (ormap recurse args-t) (recurse ret-t))
+    )
+    (TVar (n) (equal? nvar n))
+    (TPair (t1 t2) (or (recurse t1) (recurse t2)))
+    (TList (elem-t) (recurse elem-t))
+    (TRef (elem-t) (recurse elem-t))
+  )
+)
+
+; Type -> Int -> Type -> Type
+(define (apply-subst from var to)
+  (map-type-var from (λ (vi)
+    (if (equal? var vi) to (TVar vi))
+  ))
+)
+
+(define (apply-substs from substs)
+  (map-type-var from (λ (vi)
+    (match (assoc vi substs)
+      ((cons vi t) t)
+      (#f (TVar vi))
+    )
+  ))
+)
+
+
+(define (empty-substs) null)
+(define (extend-substs vi t substs)
+  (define subst-subst
+    (match-lambda ((cons tv old-t)
+      (cons tv (apply-subst old-t vi t))
+    ))
+  )
+  (cons (cons vi t) (map subst-subst substs))
+)
+
+(define (no-occurrence-violation vi t expr)
+  (raise-user-error 'unify
+    "Type variable ~v occur in ~v of expression ~v"
+    vi t expr)
+)
+
+(define (unification-failure t1 t2 expr)
+  (raise-user-error 'unify
+    "unification failure of type ~v and ~v of expression ~v"
+    t1 t2 expr)
+)
+
+(define (unify t1 t2 substs expr)
+  (cases Type t1
+    (TVar (vi1) (unify-with-tvar vi1 t2 substs expr))
+    (else (cases Type t2
+      (TVar (vi2) (unify-with-tvar vi2 t1 substs expr))
+      (else (unify-without-tvar t1 t2 substs expr))
+    ))
+  )
+)
+
+(define (unify-without-tvar t1 t2 substs expr)
+  (cases Type t1
+    (TInt () (cases Type t2
+      (TInt () substs)
+      (else (unification-failure t1 t2 expr))
+    ))
+    (TBool () (cases Type t2
+      (TBool () substs)
+      (else (unification-failure t1 t2 expr))
+    ))
+    (TUnit () (cases Type t2
+      (TUnit () substs)
+      (else (unification-failure t1 t2 expr))
+    ))
+    (TFunc (args-t1 ret-t1) (cases Type t2
+      (TFunc (args-t2 ret-t2)
+        (if (equal? (length args-t1) (length args-t2))
+          (unify-many (cons ret-t1 args-t1) (cons ret-t2 args-t2) substs expr)
+          (unification-failure t1 t2 expr)
+        )
+      )
+      (else (unification-failure t1 t2 expr))
+    ))
+    (TPair (l1 r1) (cases Type t2
+      (TPair (l2 r2) (unify-many (list l1 r1) (list l2 r2) substs expr))
+      (else (unification-failure t1 t2 expr))
+    ))
+    (TList (elem-t1) (cases Type t2
+      (TList (elem-t2) (unify elem-t1 elem-t2 substs expr))
+      (else (unification-failure t1 t2 expr))
+    ))
+    (TRef (elem-t1) (cases Type t2
+      (TRef (elem-t2) (unify elem-t1 elem-t2 substs expr))
+      (else (unification-failure t1 t2 expr))
+    ))
+    (else (error 'unify-without-tvar "unsupported unify type ~v" t1))
+  )
+)
+
+(define (unify-many ts1 ts2 substs expr)
+  (match* (ts1 ts2)
+    (((quote ()) (quote ())) substs)
+    (((cons t1 ts1) (cons t2 ts2))
+      (unify-many ts1 ts2 (unify t1 t2 substs expr) expr)
+    )
+  )
+)
+
+(define (optional-type->type ot)
+  (cases OptionalType ot
+    (OInfer () (new-tvar))
+    (OType (t) t)
+  )
+)
+
+(define (new-tvar) (TVar (next-type-var-index)))
+
+(define next-index 0)
+(define (next-type-var-index)
+  (begin0 next-index (set! next-index (add1 next-index)))
+)
+
+(define-datatype environment environment?
+  (empty-env)
+  (extend-env (var symbol?) (val Type?) (env environment?))
+)
+
+(define (apply-env env qvar)
+  (cases environment env
+    (empty-env () (error 'apply-env "type binding of ~a not found" qvar))
+    (extend-env (var val env2)
+      (if (equal? var qvar) val (apply-env env2 qvar))
+    )
+  )
+)
+(define (extend-env/binding b env)
+  (extend-env (car b) (cdr b) env)
+)
+(define (extend-env*/binding bs env)
+  (foldl (λ (b acc) (extend-env/binding b acc)) env bs)
+)
+(define (extend-env* vars vals env)
+  (extend-env*/binding (zip vars vals) env)
+)
+
+(define (type-of expr substs tenv)
+  (cases Expression expr
+    (Num (n) (values (TInt) substs))
+    (Var (v) (values (apply-env tenv v) substs))
+    (Zero? (expr)
+      (define-values (t substs1) (type-of expr substs tenv))
+      (define rsubsts (unify t (TInt) substs1 expr))
+      (values (TBool) rsubsts)
+    )
+    (Diff (lhs rhs)
+      (define-values (lhs-t lhs-substs) (type-of lhs substs tenv))
+      (define-values (rhs-t rhs-substs) (type-of rhs lhs-substs tenv))
+      (define rsubsts
+        (unify-many (list lhs-t rhs-t) (list (TInt) (TInt)) rhs-substs expr)
+      )
+      (values (TInt) rsubsts)
+    )
+    (If (test iftrue iffalse)
+      (define-values (test-t test-substs) (type-of test substs tenv))
+      (define-values (true-t true-substs) (type-of iftrue test-substs tenv))
+      (define-values (false-t false-substs) (type-of iffalse true-substs tenv))
+      (define rsubsts
+        (unify-many (list test-t true-t) (list (TBool) false-t) expr)
+      )
+      (values true-t rsubsts)
+    )
+    (Let (vars vals body)
+      (define-values (val-ts substs1) (types-of vals substs tenv))
+      (type-of body substs1 (extend-env* vars val-ts tenv))
+    )
+    (Proc (params otypes body)
+      (define param-ts (map optional-type->type otypes))
+      (define-values (ret-t substs1)
+        (type-of body substs (extend-env* params param-ts tenv))
+      )
+      (values (TFunc param-ts ret-t) substs1)
+    )
+    (Letrec (defs body)
+      (define func-defs (map LetrecDef->FuncDef defs))
+      (define let-body-env
+        (extend-env*/binding (map binding-of-funcdef func-defs) tenv))
+      (define substs1 (unify-funcdefs func-defs substs let-body-env))
+      (type-of body substs1 let-body-env)
+    )
+    (Call (func args)
+      (define-values (arg-ts args-substs) (types-of args substs tenv))
+      (define-values (func-t func-substs) (type-of func args-substs tenv))
+      (define ret-t (new-tvar))
+      (define rsubsts (unify func-t (TFunc arg-ts ret-t) func-substs expr))
+      (values ret-t rsubsts)
+    )
+
+    (NewPair (lexpr rexpr)
+      (define-values (lt lsubsts) (type-of lexpr substs tenv))
+      (define-values (rt rsubsts) (type-of rexpr lsubsts tenv))
+      (values (TPair lt rt) rsubsts)
+    )
+    (Unpair (lvar rvar expr body)
+      (define-values (lt rt) (values (new-tvar) (new-tvar)))
+      (define-values (expr-t substs1) (type-of expr substs tenv))
+      (define substs2 (unify expr-t (TPair lt rt) substs1 expr))
+      (type-of body substs2 (extend-env* (list lvar rvar) (list lt rt) tenv))
+    )
+    (Nil () (values (TList (new-tvar)) substs))
+    (NewRef (expr)
+      (define-values (expr-t substs1) (type-of expr substs tenv))
+      (values (TRef expr-t) substs1)
+    )
+    (Deref (expr)
+      (define-values (expr-t substs1) (type-of expr substs tenv))
+      (define elem-t (new-tvar))
+      (define rsubsts (unify expr-t (TRef elem-t) substs1 tenv))
+      (values elem-t rsubsts)
+    )
+    (SetRef (ref-expr val-expr)
+      (define-values (ref-t substs1) (type-of ref-expr substs tenv))
+      (define-values (val-t substs2) (type-of ref-expr substs1 tenv))
+      (define rsubsts (unify ref-t (TRef val-t) substs2 ref-expr))
+      (values (TUnit) rsubsts)
+    )
+  )
+)
+
+(define (types-of exprs substs tenv)
+  (define (types-of-cps exprs substs f)
+    (match exprs
+      ((quote ()) (f null substs))
+      ((cons expr exprs1)
+        (define-values (tp substs1) (type-of expr substs tenv))
+        (types-of-cps exprs1 substs1 (λ (types substs)
+          (f (cons tp types) substs)
+        ))
+      )
+    )
+  )
+  (types-of-cps exprs substs values)
+)
+
+(struct FuncDef (ret-t name params param-ts body))
+
+(define (LetrecDef->FuncDef def)
+  (cases LetrecDef def (MkLetrecDef (ret-ot name params param-ots body)
+    (FuncDef
+      (optional-type->type ret-ot) name params
+      (map optional-type->type param-ots) body)
+  ))
+)
+
+(define (binding-of-funcdef def)
+  (match def ((FuncDef ret-t name params param-ts body)
+    (cons name (TFunc param-ts ret-t))
+  ))
+)
+(define (unify-funcdef def substs tenv)
+  (match def ((FuncDef ret-t name params param-ts body)
+    (define-values (body-t substs1)
+      (type-of body substs (extend-env* params param-ts tenv))
+    )
+    (unify ret-t body-t substs1 body)
+  ))
+)
+(define (unify-funcdefs defs substs tenv)
+  (match defs
+    ((quote ()) substs)
+    ((cons def defs)
+      (unify-funcdefs defs (unify-funcdef def substs tenv) tenv)
+    )
+  )
+)
+
+(define (type-of-program program)
+  (cases Program program
+    (a-program (expr)
+      (with-handlers
+        ((exn:fail:user?
+          (match-lambda ((exn:fail:user message _)
+            (printf "~a\n" message)
+          )))
+        )
+        (define-values (t substs) (type-of expr (empty-substs) (empty-env)))
+        (printf "~v\n" (apply-substs t substs))
+        (void)
+      )
+    )
+  )
+)
+
+
+; ex 7.17. ex 7.18.
+(module* subst-exercise #f
+  (define (extend-substs vi t substs) (cons (cons vi t) substs))
+
+  (define (apply-substs from substs)
+    (foldr
+      (λ (subst acc) (apply-subst acc (car subst) (cdr subst)))
+      from substs)
+  )
+)
+
+; ex 7.20. calling apply-substs only on type variable
+(define (unify-with-tvar vi1 t2 substs expr)
+  (define (unify-substed-tvar vi1 t2)
+    (cases Type t2
+      (TVar (vi2)
+        (if (equal? vi1 vi2) substs (extend-substs vi1 t2 substs))
+      )
+      (else
+        (if (occur-in? vi1 t2)
+          (no-occurrence-violation vi1 t2 expr)
+          (extend-substs vi1 t2 substs)
+        )
+      )
+    ) ; cases t2
+  ) ; unify-substed-tvar
+  (define substed1 (apply-substs (TVar vi1) substs))
+  (cases Type substed1
+    (TVar (svi1) (unify-substed-tvar svi1 (apply-substs t2 substs)))
+    (else (unify substed1 t2 substs expr))
+  )
+)
+
+((sllgen:make-rep-loop "inferred> " type-of-program
+   (sllgen:make-stream-parser eopl:lex-spec inferred-syntax)))
