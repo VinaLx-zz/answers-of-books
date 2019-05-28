@@ -38,6 +38,10 @@
   ;; module
   (Type ("[" (arbno MDeclaration) "]") TModule)
 
+  (Expression
+    ("from" identifier "take" identifier (arbno "take" identifier))
+    QualifiedVar)
+
   (ModuleDef
     ("module" identifier "interface" ModuleInterface "body" ModuleBody)
     MkModuleDef)
@@ -45,10 +49,16 @@
   (ModuleInterface ("[" (arbno MDeclaration) "]") MkModuleInterface)
   (MDeclaration (identifier ":" Type) MkMDeclaration)
 
-  (ModuleBody ("[" (arbno MDefinition) "]") MkModuleBody)
   (MDefinition (identifier "=" Expression) MkMDefinition)
 
-  (Expression ("from" identifier "take" identifier) QualifiedVar)
+  (ModuleBody ("[" (arbno MDefinition) "]") MBDefinitions)
+
+  ; ex 8.5. let/letrec in module body
+  (ModuleBody ("let" (arbno identifier "=" Expression) "in" ModuleBody) MBLet)
+  (ModuleBody ("letrec" (arbno LetrecDef) "in" ModuleBody) MBLetrec)
+
+  ; ex 8.6. ex 8.7. nested module definition
+  (ModuleBody (ModuleDef ModuleBody) MBModule)
 ))
 
 (sllgen:make-define-datatypes eopl:lex-spec modules-syntax)

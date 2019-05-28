@@ -47,7 +47,7 @@
       (TBool)
     )
     (Let (vars vals body)
-      (type-of body (extend-env* vars (map tp-of vals) tenv))
+      (type-of body (check-letdefs vars vals tenv))
     )
     (Proc (params param-tps body) 
       (TFunc param-tps (type-of body (extend-env* params param-tps tenv)))
@@ -75,17 +75,9 @@
     )
 
     ;; modules
-    (QualifiedVar (mvar var)
+    (QualifiedVar (mvar var vars)
       (define module-type (apply-tenv tenv mvar))
-      (cases Type module-type
-        (TModule (decls)
-          (match (assoc-decls var decls)
-            (#f (binding-not-found-in-module var module-type expr))
-            (tp tp)
-          )
-        )
-        (else (expect-some-type-error 'module mvar module-type))
-      )
+      (type-of-qualified-var module-type (cons var vars) mvar expr)
     )
   )
 )
@@ -104,9 +96,13 @@
   )
 )
 
+(define (check-letdefs vars vals env)
+  (extend-env* vars (map (λ (val) (type-of val env)) vals) env)
+)
+
 (define (check-letrecdefs defs env)
   (define let-body-env (extend-tenv*/letrec defs env))
-  (map (λ (def) (check-letrecdef def env)) defs)
+  (map (λ (def) (check-letrecdef def let-body-env)) defs)
   let-body-env
 )
 
@@ -182,22 +178,32 @@
 )
 
 (define (module-full-decls module-body tenv)
-  (define (defs-full-decls defs tenv)
-    (match defs
-      ((quote ()) null)
-      ((cons def defs1)
-        (cases MDefinition def (MkMDefinition (var expr)
-          (define tp (type-of expr tenv))
-          (cons
-            (MkMDeclaration var tp)
-            (defs-full-decls defs1 (extend-env var tp tenv)))
-        ))
-      )
+  (cases ModuleBody module-body
+    (MBDefinitions (defs)
+      (defs-full-decls defs tenv)
+    )
+    (MBLet (vars vals body)
+      (module-full-decls body (check-letdefs vars vals tenv))
+    )
+    (MBLetrec (letrec-defs body)
+      (module-full-decls body (check-letrecdefs letrec-defs tenv))
+    )
+    (MBModule (module-def body)
+      (module-full-decls body (extend-tenv/module module-def tenv))
     )
   )
-  (cases ModuleBody module-body (MkModuleBody (defs)
-    (defs-full-decls defs tenv)
-  ))
+)
+
+(define/match (defs-full-decls defs tenv)
+  (((quote ()) _) null)
+  (((cons def defs1) _)
+    (cases MDefinition def (MkMDefinition (var expr)
+      (define tp (type-of expr tenv))
+      (cons
+        (MkMDeclaration var tp)
+        (defs-full-decls defs1 (extend-env var tp tenv)))
+    ))
+  )
 )
 
 (define/match (decls-<:? sub-decls super-decls)
@@ -207,10 +213,22 @@
     (cases MDeclaration d1 (MkMDeclaration (var1 tp1)
     (cases MDeclaration d2 (MkMDeclaration (var2 tp2)
       (if (equal? var1 var2)
-        (and (equal? tp1 tp2) (decls-<:? ds1 ds2))
+        (and (<: tp1 tp2) (decls-<:? ds1 ds2))
         (decls-<:? ds1 (cons d2 ds2))
       )
     ))))
+  )
+)
+
+(define (<: t1 t2)
+  (cases Type t1
+    (TModule (decls1)
+      (cases Type t2
+        (TModule (decls2) (decls-<:? decls1 decls2))
+        (else false)
+      )
+    )
+    (else (equal? t1 t2))
   )
 )
 
@@ -219,5 +237,21 @@
   (when (apply-env tenv new-name false)
     (raise-user-error
       'TypeError "Duplicate module declaration: ~a" new-name)
+  )
+)
+
+; ex 8.7. nested module
+(define/match (type-of-qualified-var mtype vars mvar expr)
+  ((_ (quote ()) _ _) mtype)
+  ((_ (cons var vars1) _ _)
+    (cases Type mtype
+      (TModule (decls)
+        (match (assoc-decls var decls)
+          (#f (binding-not-found-in-module var mtype expr))
+          (tp (type-of-qualified-var tp vars1 var expr))
+        )
+      )
+      (else (expect-some-type-error 'module mvar mtype))
+    )
   )
 )
