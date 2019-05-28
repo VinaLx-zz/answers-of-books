@@ -25,12 +25,7 @@
       (if (expval->bool (eval test)) (eval texpr) (eval fexpr))
     )
 
-    (Let (vars vals body)
-      (let ((new-env
-        (extend-env* vars (map eval vals) env)))
-        (value-of body new-env)
-      )
-    )
+    (Let (vars vals body) (value-of body (extend-env*/let vars vals body)))
 
     (Proc (params types body) (make-procedure-val params body env))
 
@@ -40,7 +35,7 @@
         (apply-procedure proc args)
       )
     )
-    (Letrec (defs body) (eval-letrec defs body env))
+    (Letrec (defs body) (value-of body (extend-env*/letrec defs env)))
 
     ;; modules
     (QualifiedVar (mvar var) (look-up-qualified-var mvar var env))
@@ -58,18 +53,17 @@
   ))
 )
 
-(define (eval-letrec recdefs expr env)
+(define (extend-env*/let vars vals env)
+  (extend-env* vars (map (λ (expr) (value-of expr env))) env)
+)
+
+(define (extend-env*/letrec defs env)
   (define (LetrecDef->ProcInfo recdef)
     (cases LetrecDef recdef
       (MkLetrecDef (ret-t var params types body) (ProcInfo var params body))
     )
   )
-  (define (make-rec-env recdefs env)
-    (extend-env*-rec (map LetrecDef->ProcInfo recdefs) env)
-  )
-  (let ((rec-env (make-rec-env recdefs env)))
-    (value-of expr rec-env)
-  )
+  (extend-env*-rec (map LetrecDef->ProcInfo defs) env)
 )
 
 ;; modules
@@ -78,24 +72,39 @@
   (foldl extend-env/module env module-defs)
 )
 (define (extend-env/module module-def env)
-  (cases ModuleDef module-def (MkModuleDef (name interfaces body)
-    (extend-env name (module-val (value-of-module-body body env)) env)
+  (cases ModuleDef module-def (MkModuleDef (name interf body)
+    (define m (value-of-module-body body (exported-names interf) env))
+    (extend-env name (module-val m) env)
   ))
 )
 
-(define (value-of-module-body module-body env)
-  (define (make-env-from-defs defs eval-env)
-    (match defs
-      ((quote ()) (empty-env))
-      ((cons def defs1) (cases MDefinition def (MkMDefinition (ident expr)
-        (define val (value-of expr eval-env))
-        (extend-env ident val
-          (make-env-from-defs defs1 (extend-env ident val eval-env)))
-      )))
-    )
-  )
+; ex 8.2.
+; adding only those names that are declared in the interface to the binding
+(define (value-of-module-body module-body export-names env)
   (cases ModuleBody module-body (MkModuleBody (defs)
-    (TypedModule (make-env-from-defs defs env))
+    (TypedModule (contruct-binding defs export-names env))
   ))
 )
 
+(define/match (contruct-binding defs names eval-env)
+  (((quote ()) _ _) (empty-env))
+  (((cons def defs1) (cons name names1) _)
+    (cases MDefinition def (MkMDefinition (ident expr)
+      (define val (value-of expr eval-env))
+      (define eval-env1 (extend-env ident val eval-env))
+      (if (equal? ident name)
+        (extend-env name val (contruct-binding defs1 names1 eval-env1))
+        (contruct-binding defs1 names eval-env1)
+      )
+    ))
+  )
+)
+
+(define (exported-names interf)
+  (define (decl->name decl)
+    (cases MDeclaration decl (MkMDeclaration (name tp) name))
+  )
+  (cases ModuleInterface interf
+    (MkModuleInterface (decls) (map decl->name decls))
+  )
+)

@@ -64,9 +64,7 @@
       )
     )
     (Letrec (defs body)
-      (define let-body-env
-        (extend-env*/binding (map letrecdef->binding defs) tenv))
-      (map (λ (def) (check-letrecdef def let-body-env)) defs)
+      (define let-body-env (check-letrecdefs defs tenv))
       (type-of body let-body-env)
     )
     (If (test iftrue iffalse)
@@ -106,12 +104,21 @@
   )
 )
 
-(define (letrecdef->binding def)
-  (cases LetrecDef def
-    (MkLetrecDef (ret-tp name params param-tps body)
-      (cons name (TFunc param-tps ret-tp))
+(define (check-letrecdefs defs env)
+  (define let-body-env (extend-tenv*/letrec defs env))
+  (map (λ (def) (check-letrecdef def env)) defs)
+  let-body-env
+)
+
+(define (extend-tenv*/letrec defs env)
+  (define (letrecdef->binding def)
+    (cases LetrecDef def
+      (MkLetrecDef (ret-tp name params param-tps body)
+        (cons name (TFunc param-tps ret-tp))
+      )
     )
   )
+  (extend-env*/binding (map letrecdef->binding defs) env)
 )
 
 (define (check-letrecdef def env)
@@ -157,6 +164,7 @@
 
 (define (extend-tenv/module module-def tenv)
   (cases ModuleDef module-def (MkModuleDef (name interf body)
+    (check-duplicate-module name tenv)
     (cases ModuleInterface interf (MkModuleInterface (decls)
       (check-module-body-match-decls body decls tenv name)
       (extend-env name (TModule decls) tenv)
@@ -206,3 +214,10 @@
   )
 )
 
+; ex 8.1 rejecting program that defines two modules with the same name.
+(define (check-duplicate-module new-name tenv)
+  (when (apply-env tenv new-name false)
+    (raise-user-error
+      'TypeError "Duplicate module declaration: ~a" new-name)
+  )
+)
