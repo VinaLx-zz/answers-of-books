@@ -35,7 +35,7 @@
   (Type ("int") TInt)
   (Type ("(" (separated-list Type ",") "->" Type ")") TFunc)
 
-  ;; module
+  ;; simple module
   (Type ("[" (arbno MDeclaration) "]") TModule)
 
   (Expression
@@ -47,9 +47,6 @@
     MkModuleDef)
 
   (ModuleInterface ("[" (arbno MDeclaration) "]") MkModuleInterface)
-  (MDeclaration (identifier ":" Type) MkMDeclaration)
-
-  (MDefinition (identifier "=" Expression) MkMDefinition)
 
   (ModuleBody ("[" (arbno MDefinition) "]") MBDefinitions)
 
@@ -59,6 +56,17 @@
 
   ; ex 8.6. ex 8.7. nested module definition
   (ModuleBody (ModuleDef ModuleBody) MBModule)
+
+  ; opaque types
+  (Type (identifier) TAlias)
+  (Type ("from" identifier "take" identifier) TQualified)
+
+  (MDeclaration (identifier ":" Type) MDecVar)
+  (MDeclaration ("opaque" identifier) MDecOpaque)
+  (MDeclaration ("transparent" identifier "=" Type) MDecTrans)
+
+  (MDefinition (identifier "=" Expression) MDefVar)
+  (MDefinition ("type" identifier "=" Type) MDefType)
 ))
 
 (sllgen:make-define-datatypes eopl:lex-spec modules-syntax)

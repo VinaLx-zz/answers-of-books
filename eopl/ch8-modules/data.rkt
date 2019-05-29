@@ -57,7 +57,11 @@
 
 (define-datatype environment environment?
   (empty-env)
-  (extend-env (var symbol?) (val (p-or expval? Type?)) (env environment?))
+  (extend-env
+    (var (p-or symbol? type-var?))
+    (val (p-or expval? Type?))
+    (env environment?)
+  )
   (extend-env*-rec (proc-infos (list-of ProcInfo?)) (env environment?))
 )
 
@@ -100,9 +104,15 @@
   )
 )
 
+;; simple module
+
 (struct TypedModule (bindings) #:transparent)
 
 (define (look-up-qualified-var mvar var env)
   (match-define (TypedModule bindings) (expval->module (apply-env env mvar)))
   (apply-env bindings var)
 )
+
+;; opaque types
+
+(struct type-var (type) #:transparent)

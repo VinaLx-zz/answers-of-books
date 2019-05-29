@@ -42,7 +42,37 @@ in [
 (from test take even 10)
 ")
 
-; (run letrec-module-body)
+(define opaque-type-module "
+module nat
+interface [
+  opaque N
+  z    : N
+  succ : (N -> N)
+  pred : (N -> N)
+  isZ  : (N -> bool)
+]
+body [
+  type N = int
+  z    = 0
+  succ = proc(n1: N) -(n1, -1)
+  pred = proc(n2: N) -(n2, 1)
+  isZ  = proc(n3: N) zero?(n3)
+]
+letrec
+int ntoi(n4 : from nat take N) =
+  if (from nat take isZ n4)
+    then 0
+    else -((ntoi (from nat take pred n4)), -1)
+in letrec
+from nat take N iton(n5: int) =
+  if zero?(n5)
+    then from nat take z
+    else (from nat take succ (iton -(n5, 1)))
+in
+  (ntoi (iton 10))
+")
 
-((sllgen:make-rep-loop "module> " run-program
-   (sllgen:make-stream-parser eopl:lex-spec modules-syntax)))
+(run opaque-type-module)
+
+; ((sllgen:make-rep-loop "module> " run-program
+   ; (sllgen:make-stream-parser eopl:lex-spec modules-syntax)))
