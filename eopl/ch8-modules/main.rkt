@@ -73,14 +73,16 @@ in
 ")
 
 (define module-proc "
-module nat
-interface [
+interface natinterf = [
   opaque N
   z    : N
   succ : (N -> N)
   pred : (N -> N)
   isZ  : (N -> bool)
 ]
+module nat
+interface
+  natinterf
 body [
   type N = int
   z    = 0
@@ -89,24 +91,12 @@ body [
   isZ  = proc(n3: N) zero?(n3)
 ]
 module intnatp
-interface (n : [
-  opaque N
-  z    : N
-  succ : (N -> N)
-  pred : (N -> N)
-  isZ  : (N -> bool)
-]) => [
+interface (n : natinterf) => [
   intToNat : (int -> from n take N)
   natToInt : (from n take N -> int)
 ]
 body
-  module-proc (nn : [
-    opaque N
-    z    : N
-    succ : (N -> N)
-    pred : (N -> N)
-    isZ  : (N -> bool)
-  ])
+  module-proc (nn : natinterf)
   letrec
   int ntoi(x : from nn take N) =
     if (from nn take isZ x)

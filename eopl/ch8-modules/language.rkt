@@ -46,7 +46,7 @@
 
   (ModuleDef
     ("module" identifier "interface" ModuleInterface "body" ModuleBody)
-    MkModuleDef)
+    ModDefModule)
 
 
   (ModuleBody ("[" (arbno MDefinition) "]") MBDefinitions)
@@ -71,15 +71,27 @@
 
   ;; module procedure
   (ModuleInterface ("[" (arbno MDeclaration) "]") MIDecls)
-  (ModuleInterface
-    ("(" identifier ":" ModuleInterface ")" "=>" ModuleInterface)
-    MIProc)
 
   (ModuleBody (identifier) MBVar)
-  (ModuleBody ("(" identifier identifier ")") MBCall)
+  
+  ; ex 8.25. arbitrary number of parameters
+  (ModuleInterface
+    ((separated-list "(" identifier ":" ModuleInterface ")" ",") "=>"
+     ModuleInterface)
+    MIProc)
+
   (ModuleBody
-    ("module-proc" "(" identifier ":" ModuleInterface ")" ModuleBody)
+    ("module-proc" "(" (separated-list identifier ":" ModuleInterface ",") ")"
+     ModuleBody)
     MBProc)
+
+  ; ex 8.26. calling with module body instead of identifier
+  (ModuleBody ("(" ModuleBody (arbno ModuleBody) ")") MBCall)
+
+  ; ex 8.27. interface declaration
+  (ModuleDef ("interface" identifier "=" ModuleInterface) ModDefInterface)
+  
+  (ModuleInterface (identifier) MIVar)
 ))
 
 (sllgen:make-define-datatypes eopl:lex-spec modules-syntax)
