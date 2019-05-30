@@ -9,6 +9,7 @@
   (bool-val (bool boolean?))
   (proc-val (proc Procedure?))
   (module-val (mod TypedModule?))
+  (module-proc-val (mod-proc Procedure?))
 )
 
 (define (report-expval-extractor-error type value)
@@ -38,19 +39,26 @@
     (else (report-expval-extractor-error 'module val))
   )
 )
+(define (expval->module-proc val)
+  (cases expval val
+    (module-proc-val (m) m)
+    (else (report-expval-extractor-error 'module-proc val))
+  )
+)
 (define (expval->val val)
   (cases expval val
     (num-val (n) n)
     (bool-val (b) b)
     (proc-val (p) p)
     (module-val (m) m)
+    (module-proc-val (mp) mp)
   )
 )
 
-(struct Procedure (vars body env) #:transparent)
+(struct Procedure (params body env) #:transparent)
 
-(define (make-procedure-val vars body env)
-  (proc-val (Procedure vars body env))
+(define (make-procedure-val params body env)
+  (proc-val (Procedure params body env))
 )
 
 (struct ProcInfo (name params body) #:transparent)
@@ -116,3 +124,4 @@
 ;; opaque types
 
 (struct type-var (type) #:transparent)
+

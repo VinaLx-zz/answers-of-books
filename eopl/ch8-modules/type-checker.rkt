@@ -6,15 +6,15 @@
 (require "language.rkt")
 (require "../eopl.rkt")
 
-(define (assert-type-equal! t texpected expr)
-  (unless (equal? t texpected)
+(define (assert-subtype! sub-t super-t tenv expr)
+  (unless (<: sub-t super-t tenv)
     (raise-user-error
       'TypeError "Expect ~v to have type ~v, but found ~v"
-      expr texpected t)
+      expr super-t sub-t)
   )
 )
 (define (assert-expr-type-in expr tp tenv)
-  (assert-type-equal! (type-of expr tenv) tp expr)
+  (assert-subtype! (type-of expr tenv) tp tenv expr)
 )
 
 (define (apply-tenv env var)
@@ -53,15 +53,7 @@
       (TFunc param-tps (type-of body (extend-tenv* params param-tps tenv)))
     )
     (Call (f args)
-      (define f-tp (tp-of f))
-      (cases Type f-tp
-        (TFunc (params-tp ret-tp)
-          (check-function-arity-error f (length params-tp) (length args))
-          (map assert-expr-type args params-tp)
-          ret-tp
-        )
-        (else (expect-some-type-error 'function f f-tp))
-      )
+      (check-call f args tenv tp-of)
     )
     (Letrec (defs body)
       (define let-body-env (check-letrecdefs defs tenv))
@@ -85,6 +77,32 @@
   (raise-user-error
     'TypeError "Expect ~v to have ~a type, but found ~v"
     expr sometype t)
+)
+
+(define (check-call f args tenv tp-of)
+  (define f-tp (tp-of f))
+  (define (assert-expr-type expr tp)
+    (assert-subtype! (tp-of expr) tp tenv expr)
+  )
+  (cases Type f-tp
+    (TFunc (param-ts ret-t)
+      (check-function-arity-error f (length param-ts) (length args))
+      (define arg-ts (map tp-of args))
+      (check-call-impl param-ts arg-ts ret-t tenv args)
+    )
+    (else (expect-some-type-error 'function f f-tp))
+  )
+)
+(define (check-call-impl param-ts args-ts ret-t tenv args)
+  (match* (param-ts args-ts args)
+    (((quote ()) (quote ()) (quote ())) ret-t)
+    (((cons param-t param-ts) (cons arg-t arg-ts) (cons arg args))
+      (assert-subtype! arg-t param-t tenv arg)
+      (match-define (cons (cons ret-t1 param-ts1) tenv1)
+        (rewrite-dependents param-t arg-t tenv (cons ret-t param-ts)))
+      (check-call-impl param-ts1 arg-ts ret-t1 tenv1 args)
+    )
+  )
 )
 
 (define (check-function-arity-error expr nparams nargs)
@@ -162,36 +180,74 @@
 
 (define (extend-tenv/module module-def tenv)
   (cases ModuleDef module-def (MkModuleDef (name interf body)
+  (printf "----- checking module ~v -----\n" name)
     (check-duplicate-module name tenv)
-    (cases ModuleInterface interf (MkModuleInterface (decls)
-      (check-module-body-match-decls body decls tenv name)
-      (extend-env name (TModule (expand-type-decls name decls tenv)) tenv)
-    ))
+    (define body-tp (type-of-module-body body tenv))
+    (printf "[DEBUG] type of body\n" )
+    (pretty-print body-tp)
+    (define inte-tp (interface->type name interf))
+    (printf "[DEBUG] type of interface\n" )
+    (pretty-print inte-tp)
+    (assert-subtype! body-tp inte-tp tenv body)
+    (printf "[DEBUG] pass subtype check\n")
+    (define inte-tp2 (type-of-module-interface name interf tenv))
+    (printf "[DEBUG] type of final interface\n")
+    (pretty-print inte-tp2)
+    (extend-env name inte-tp2 tenv)
   ))
 )
 
-(define (check-module-body-match-decls body decls tenv name)
-  (define full-decls (module-full-decls body tenv))
-  (unless (decls-<:? full-decls decls tenv)
-    (raise-user-error
-      'TypeError "Definitions of module ~a: ~v don't match the interfaces: ~v"
-      name full-decls decls)
+(define (type-of-module-body module-body tenv)
+  (cases ModuleBody module-body
+    (MBDefinitions (defs)
+      (TModule (MNNone) (defs->decls defs tenv))
+    )
+    (MBLet (vars vals body)
+      (define body-env (check-letrecdefs vars vals tenv))
+      (type-of-module-body body body-env)
+    )
+    (MBLetrec (letrec-defs body)
+      (define body-env (check-letrecdefs letrec-defs tenv))
+      (type-of-module-body body body-env)
+    )
+    (MBModule (module-def body)
+      (define body-env (extend-tenv/module module-def tenv))
+      (type-of-module-body body body-env)
+    )
+    (MBVar (mvar)
+      (apply-tenv mvar tenv)
+    )
+    (MBProc (param interf body)
+      (define body-env
+        (extend-env param (type-of-module-interface param interf tenv) tenv))
+      (TFunc
+        (list (interface->type param interf))
+        (type-of-module-body body body-env))
+    )
+    (MBCall (mpvar argvar)
+      (check-call mpvar (list argvar) tenv (λ (var) (apply-tenv tenv var)))
+    )
   )
 )
 
-(define (module-full-decls module-body tenv)
-  (cases ModuleBody module-body
-    (MBDefinitions (defs)
-      (defs->decls defs tenv)
+(define (interface->type name interf)
+  (define oname (if name (MNJust name) (MNNone)))
+  (cases ModuleInterface interf
+    (MIDecls (decls) (TModule oname decls))
+    (MIProc (mparam param-interf ret-interf)
+      (TFunc (list (interface->type mparam param-interf))
+             (interface->type false ret-interf)
+      )
     )
-    (MBLet (vars vals body)
-      (module-full-decls body (check-letdefs vars vals tenv))
+  )
+)
+(define (type-of-module-interface name interf tenv)
+  (cases ModuleInterface interf
+    (MIDecls (decls)
+      (TModule (MNJust name) (expand-decls name decls tenv))
     )
-    (MBLetrec (letrec-defs body)
-      (module-full-decls body (check-letrecdefs letrec-defs tenv))
-    )
-    (MBModule (module-def body)
-      (module-full-decls body (extend-tenv/module module-def tenv))
+    (MIProc (mparam param-interf ret-interf)
+      (interface->type name interf)
     )
   )
 )
@@ -228,18 +284,6 @@
   )
 )
 
-(define (<: t1 t2 tenv)
-  (cases Type t1
-    (TModule (decls1)
-      (cases Type t2
-        (TModule (decls2) (decls-<:? decls1 decls2 tenv))
-        (else false)
-      )
-    )
-    (else (equal? (expand-type t1 tenv) (expand-type t2 tenv)))
-  )
-)
-
 ; ex 8.1 rejecting program that defines two modules with the same name.
 (define (check-duplicate-module new-name tenv)
   (when (apply-env tenv new-name false)
@@ -259,7 +303,7 @@
   ((_ (quote ()) _ _) mtype)
   ((_ (cons var vars1) _ _)
     (cases Type mtype
-      (TModule (decls)
+      (TModule (oname decls)
         (match (assoc-decls var decls)
           (#f (binding-not-found-in-module var mtype expr))
           (tp (type-of-qualified-var tp vars1 var expr))
@@ -289,8 +333,7 @@
     (TQualified (mvar tvar)
       (apply-tenv/qualified tenv mvar (type-var tvar) tp)
     )
-    ; TODO: binding the module name to '__UNKNOWN__ is wrong
-    (TModule (decls) (expand-type-decls '__UNKNOWN__ decls tenv))
+    (TModule (oname decls) (expand-decls (get-name oname) decls tenv))
   )
 )
 
@@ -311,15 +354,6 @@
     )
   )
 )
-(define (expand-type-decls mvar decls tenv)
-  (match decls
-    ((quote ()) null)
-    ((cons decl decls1)
-      (define-values (e-decl tenv1) (expand-type-decl mvar decl tenv))
-      (cons e-decl (expand-type-decls mvar decls1 tenv1))
-    )
-  )
-)
 
 (define (decl->name decl)
   (cases MDeclaration decl
@@ -330,6 +364,7 @@
 )
 
 (define (decl-<:? d1 d2 tenv)
+  (printf "[DEBUG] decl-<: ~v\n                ~v\n" d1 d2)
   (cases MDeclaration d1
     (MDecVar (var1 t1)
       (cases MDeclaration d2
@@ -353,10 +388,22 @@
   )
 )
 
+(define (expand-decls mvar decls tenv)
+  (match decls
+    ((quote ()) null)
+    ((cons decl decls1)
+      (define-values (e-decl tenv1) (expand-type-decl mvar decl tenv))
+      (cons e-decl (expand-decls mvar decls1 tenv1))
+    )
+  )
+)
+
+
 (define (extend-tenv/decl decl tenv)
+  (printf "[DEBUG] extend-tenv/decl ~v\n" decl)
   (cases MDeclaration decl
-    (MDecVar (var tp)
-      (extend-env var (expand-type tp tenv) tenv)
+    (MDecVar (var tp) tenv
+      ; (extend-env var (expand-type tp tenv) tenv)
     )
     (MDecTrans (tvar tp)
       (extend-tenv/alias tvar (expand-type tp tenv) tenv)
@@ -384,3 +431,91 @@
   (extend-tenv*/binding (zip vars tps) tenv)
 )
 
+;; module procedure
+
+(define (new-module-name) (gensym 'module))
+(define (get-name opt)
+  (cases OptionalModuleName opt
+    (MNJust (name) name)
+    (MNNone () (new-module-name))
+  )
+)
+
+(define (<: t1 t2 tenv)
+  (printf "[DEBUG] <: ~v\n           ~v\n" t1 t2)
+  (cases Type t1
+    (TModule (oname decls1) (cases Type t2
+      (TModule (oname decls2) (decls-<:? decls1 decls2 tenv))
+      (else false)
+    ))
+    (TFunc (param-ts1 ret-t1) (cases Type t2
+      (TFunc (param-ts2 ret-t2)
+        (<:-func param-ts1 param-ts2 ret-t1 ret-t2 tenv)
+      )
+      (else false)
+    ))
+    (else (equal? (expand-type t1 tenv) (expand-type t2 tenv)))
+  )
+)
+
+(define (<:-func param-ts1 param-ts2 ret-t1 ret-t2 tenv)
+  (match* (param-ts1 param-ts2)
+    (((quote ()) (quote ())) (<: ret-t1 ret-t2 tenv))
+    (((cons param-t1 param-ts1) (cons param-t2 param-ts2))
+      (if (<: param-t2 param-t1 tenv)
+        (match-let
+          (((cons (cons ret-t1/ param-ts1/) tenv/)
+            (rewrite-dependents
+              param-t1 param-t2 tenv (cons ret-t1 param-ts1))))
+          (<:-func param-ts1/ param-ts2 ret-t1/ ret-t2 tenv/)
+        )
+        false
+      )
+    )
+  )
+)
+
+(define (rename-module tp from to)
+  (define (recurse t) (rename-module t from to))
+  (cases Type tp
+    (TQualified (mvar var)
+      (if (equal? from mvar) (TQualified to var) tp )
+    )
+    (TFunc (param-ts ret-ts)
+      (TFunc (map recurse param-ts) (recurse ret-ts))
+    )
+    (TModule (oname decls)
+      (if (equal? (get-name oname) from) tp
+        (TModule oname (map (λ (decl) (rename-module/decl decl from to)) decls))
+      )
+    )
+    (else tp)
+  )
+)
+(define (rename-module/decl decl from to)
+  (cases MDeclaration decl
+    (MDecVar (var tp) (MDecVar var (rename-module tp from to)))
+    (MDecTrans (var tp) (MDecTrans var (rename-module tp from to)))
+    (MDecOpaque (var) decl)
+  )
+)
+
+(define (rewrite-dependents origin-t new-t tenv ret-ts)
+  (cases Type origin-t
+    (TModule (oname-o decls-o) (cases Type new-t
+      (TModule (oname-n decls-n)
+        (define old-name (get-name oname-o))
+        (define new-name (get-name oname-n))
+        (define (rename t) (rename-module t old-name new-name))
+        (define new-ret-ts (map rename ret-ts))
+        (define new-tenv
+           (extend-env new-name
+             (TModule (MNJust new-name) (expand-decls new-name decls-o tenv))
+             tenv))
+        (cons new-ret-ts new-tenv)
+      )
+      (else (cons ret-ts tenv))
+    ))
+    (else (cons ret-ts tenv))
+  )
+)

@@ -77,7 +77,7 @@
 (define (extend-env/module module-def env)
   (cases ModuleDef module-def (MkModuleDef (name interf body)
     (define m (value-of-module-body body (exported-names interf) env))
-    (extend-env name (module-val m) env)
+    (extend-env name m env)
   ))
 )
 
@@ -86,7 +86,7 @@
 (define (value-of-module-body module-body export-names env)
   (cases ModuleBody module-body
     (MBDefinitions (defs)
-      (TypedModule (contruct-binding defs export-names env))
+      (module-val (TypedModule (contruct-binding defs export-names env)))
     )
     (MBLet (vars vals body)
       (define let-body-env (extend-env*/let vars vals env))
@@ -99,6 +99,16 @@
     (MBModule (module-def body)
       (define body-env (extend-env/module module-def env))
       (value-of-module-body body export-names body-env)
+    )
+    (MBVar (mvar)
+      (apply-env env mvar)
+    )
+    (MBProc (param tp body)
+      (module-proc-val (Procedure (list param) body env))
+    )
+    (MBCall (mvar argvar)
+      (define mp (expval->module-proc (apply-env env mvar)))
+      (apply-module-procedure mp (list (apply-env env argvar)) export-names)
     )
   )
 )
@@ -131,7 +141,8 @@
     )
   )
   (cases ModuleInterface interf
-    (MkModuleInterface (decls) (exported-names-decls decls))
+    (MIDecls (decls) (exported-names-decls decls))
+    (MIProc (param tp body) null)
   )
 )
 
@@ -143,4 +154,18 @@
       (eval-qualified-var (apply-env binding var) vars1)
     ))
   )
+)
+
+;; module procedure
+
+(define (apply-module-procedure p args export-names)
+  (match p ((Procedure params body env)
+    (define-values (nparam narg) (values (length params) (length args)))
+    (unless (equal? nparam narg)
+      (error 'apply-module-procedure
+        "procedure arity mismatch between ~a (args) and ~a (params)"
+        narg nparam)
+    )
+    (value-of-module-body body export-names (extend-env* params args env))
+  ))
 )

@@ -36,7 +36,9 @@
   (Type ("(" (separated-list Type ",") "->" Type ")") TFunc)
 
   ;; simple module
-  (Type ("[" (arbno MDeclaration) "]") TModule)
+  (Type (OptionalModuleName (arbno MDeclaration) "]") TModule)
+  (OptionalModuleName ("[") MNNone)
+  (OptionalModuleName ("<" identifier ">" "[") MNJust)
 
   (Expression
     ("from" identifier "take" identifier (arbno "take" identifier))
@@ -46,7 +48,6 @@
     ("module" identifier "interface" ModuleInterface "body" ModuleBody)
     MkModuleDef)
 
-  (ModuleInterface ("[" (arbno MDeclaration) "]") MkModuleInterface)
 
   (ModuleBody ("[" (arbno MDefinition) "]") MBDefinitions)
 
@@ -57,7 +58,7 @@
   ; ex 8.6. ex 8.7. nested module definition
   (ModuleBody (ModuleDef ModuleBody) MBModule)
 
-  ; opaque types
+  ;; opaque types
   (Type (identifier) TAlias)
   (Type ("from" identifier "take" identifier) TQualified)
 
@@ -67,6 +68,18 @@
 
   (MDefinition (identifier "=" Expression) MDefVar)
   (MDefinition ("type" identifier "=" Type) MDefType)
+
+  ;; module procedure
+  (ModuleInterface ("[" (arbno MDeclaration) "]") MIDecls)
+  (ModuleInterface
+    ("(" identifier ":" ModuleInterface ")" "=>" ModuleInterface)
+    MIProc)
+
+  (ModuleBody (identifier) MBVar)
+  (ModuleBody ("(" identifier identifier ")") MBCall)
+  (ModuleBody
+    ("module-proc" "(" identifier ":" ModuleInterface ")" ModuleBody)
+    MBProc)
 ))
 
 (sllgen:make-define-datatypes eopl:lex-spec modules-syntax)

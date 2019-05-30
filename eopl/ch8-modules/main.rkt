@@ -72,7 +72,65 @@ in
   (ntoi (iton 10))
 ")
 
-(run opaque-type-module)
+(define module-proc "
+module nat
+interface [
+  opaque N
+  z    : N
+  succ : (N -> N)
+  pred : (N -> N)
+  isZ  : (N -> bool)
+]
+body [
+  type N = int
+  z    = 0
+  succ = proc(n1: N) -(n1, -1)
+  pred = proc(n2: N) -(n2, 1)
+  isZ  = proc(n3: N) zero?(n3)
+]
+module intnatp
+interface (n : [
+  opaque N
+  z    : N
+  succ : (N -> N)
+  pred : (N -> N)
+  isZ  : (N -> bool)
+]) => [
+  intToNat : (int -> from n take N)
+  natToInt : (from n take N -> int)
+]
+body
+  module-proc (nn : [
+    opaque N
+    z    : N
+    succ : (N -> N)
+    pred : (N -> N)
+    isZ  : (N -> bool)
+  ])
+  letrec
+  int ntoi(x : from nn take N) =
+    if (from nn take isZ x)
+      then 0
+      else -((ntoi (from nn take pred x)), -1)
+  in letrec
+  from nn take N iton(y : int) =
+    if zero?(y)
+      then from nn take z
+      else (from nn take succ (iton -(y, 1)))
+  in [
+    intToNat = iton
+    natToInt = ntoi
+  ]
+module intnat
+interface [
+  intToNat : (int -> from nat take N)
+  natToInt : (from nat take N -> int)
+]
+body (intnatp nat)
+(from intnat take natToInt (from intnat take intToNat 10))
+")
+
+(run module-proc)
 
 ; ((sllgen:make-rep-loop "module> " run-program
    ; (sllgen:make-stream-parser eopl:lex-spec modules-syntax)))
