@@ -10,6 +10,7 @@
   (Expression (number) Num)
   (Expression (identifier) Var)
   (Expression ("-" "(" Expression "," Expression ")") Diff)
+  (Expression ("+" "(" Expression "," Expression ")") Plus)
   (Expression ("zero?" "(" Expression ")") Zero?)
   (Expression ("if" Expression "then" Expression "else" Expression) If)
 
@@ -23,11 +24,16 @@
     ("proc" "(" (separated-list identifier ":" Type ",") ")" Expression)
     Proc)
 
-  (Expression ("letrec" (arbno ProcDef) "in" Expression) Letrec)
-  (ProcDef
+  (Expression ("letrec" (arbno LetrecDef) "in" Expression) Letrec)
+  (LetrecDef
     (Type identifier "(" (separated-list identifier ":" Type ",") ")"
      "=" Expression)
-    MkProcDef)
+    MkLetrecDef)
+
+  (Expression ("nil" "[" Type "]") Nil)
+  (Expression
+    ("list" "(" Expression "," (separated-list Expression ",") ")")
+    List)
 
   (Expression ("begin" (separated-list Expression ";") "end") Begin_)
 
@@ -37,13 +43,14 @@
   (Type ("int") TInt)
   (Type ("bool") TBool)
   (Type ("unit") TUnit)
+  (Type ("list" Type) TList)
 
   ;; object oriented programming
   (ClassDecl
     ("class" identifier
       "extends" identifier
       (arbno "implements" identifier)
-      (arbno "field" identifier)
+      (arbno "field" Type identifier)
       (arbno MethodDecl))
     CDeclClass)
 
@@ -55,7 +62,7 @@
   (AbsMethodDecl ("method" MethodSignature) MkAbsMethodDecl)
 
   (MethodSignature
-    (identifier "(" (separated-list identifier ":" Type ",") ")")
+    (Type identifier "(" (separated-list identifier ":" Type ",") ")")
     MkMethodSignature)
 
   (Expression ("new" identifier "(" (separated-list Expression ",") ")") New)
@@ -67,7 +74,17 @@
     ("super" identifier "(" (separated-list Expression ",") ")")
     Super)
 
+  ; ex 9.6. instance of
   (Expression ("instance-of" Expression identifier) InstanceOf)
+
+  ; ex 9.8. field reference
+  (Expression ("field-get" Expression identifier) FieldGet)
+  (Expression ("field-set" Expression identifier "=" Expression) FieldSet)
+
+  ; ex 9.9. super object field reference
+  (Expression ("super-field-get" identifier) SuperFieldGet)
+  (Expression ("super-field-set" identifier "=" Expression) SuperFieldSet)
+
   (Expression ("cast" Expression identifier) Cast)
   (Expression ("self") Self)
 

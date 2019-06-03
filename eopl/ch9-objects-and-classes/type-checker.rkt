@@ -31,6 +31,11 @@
       (assert-expr-type rhs (TInt))
       (TInt)
     )
+    (Plus (lhs rhs)
+      (assert-expr-type lhs (TInt))
+      (assert-expr-type rhs (TInt))
+      (TInt)
+    )
     (Zero? (expr)
       (assert-expr-type expr (TInt))
       (TBool)
@@ -68,6 +73,14 @@
         (extend-env*/binding (map letrecdef->binding defs) tenv))
       (map (λ (def) (check-letrecdef def let-body-env)) defs)
       (type-of body let-body-env)
+    )
+
+    (Nil (tp) (TList tp))
+
+    (List (head tail)
+      (define elem-tp (tp-of head))
+      (map (λ (elem) (assert-expr-type elem elem-tp)) tail)
+      (TList elem-tp)
     )
 
     (Set (var expr)

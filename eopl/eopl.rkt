@@ -32,8 +32,8 @@
   )
 )
 
-(define (p-or p1 p2)
-  (λ (x) (or (p1 x) (p2 x)))
+(define (p-or . ps)
+  (foldl (λ (p acc) (λ (x) (or (p x) (acc x)))) (const false) ps)
 )
 
 (define (zip l1 l2)
