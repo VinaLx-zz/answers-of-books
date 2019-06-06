@@ -141,7 +141,7 @@
 
 (define object-class (class_ 'object false null (empty-env)))
 
-(struct method (host-class-name params body) #:transparent)
+(struct method (visibility host-class-name params body) #:transparent)
 
 (struct object (class_ fields-env super-obj) #:transparent)
 
@@ -172,3 +172,44 @@
 (define (get-field-ref obj field-name)
   (apply-env (object-fields-env obj) field-name)
 )
+
+; ex 9.11. ex. 9.12
+
+(define (v-great v1 v2)
+  (cases Visibility v1
+    (VPrivate () false)
+    (VProtected () (cases Visibility v2
+      (VPrivate () true)
+      (else false)
+    ))
+    (VPublic () (cases Visibility v2
+      (VPublic () false)
+      (else true)
+    ))
+  )
+)
+(define (v-ge v1 v2) (or (v-great v1 v2) (equal? v1 v2)))
+
+(define (equal-class? cls1 cls2)
+  (equal? (class_-name cls1) (class_-name cls2))
+)
+
+(define (subclass? c1 c2)
+  (cond
+    ((not c1) false)
+    ((not c2) true)
+    ((equal-class? c1 c2) true)
+    (else (subclass? (class_-super-class c1) c2))
+  )
+)
+
+(define (visible? callee-vis callee-cls caller-cls)
+  (cond
+    ((not caller-cls) (equal? callee-vis (VPublic)))
+    ((equal-class? caller-cls callee-cls) true)
+    ((subclass? caller-cls callee-cls)
+      (v-ge callee-vis (VProtected))
+    )
+  )
+)
+

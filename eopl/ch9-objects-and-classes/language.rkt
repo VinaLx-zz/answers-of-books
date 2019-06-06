@@ -50,7 +50,7 @@
     ("class" identifier
       "extends" identifier
       (arbno "implements" identifier)
-      (arbno "field" Type identifier)
+      (arbno FieldDecl)
       (arbno MethodDecl))
     CDeclClass)
 
@@ -58,12 +58,16 @@
     ("interface" identifier (arbno AbsMethodDecl))
     CDeclInterface)
 
-  (MethodDecl ("method" MethodSignature Expression) MkMethodDecl)
+  (FieldDecl ("field" Visibility Type identifier) MkFieldDecl)
+
+  (MethodDecl ("method" Visibility MethodSignature Expression) MkMethodDecl)
   (AbsMethodDecl ("method" MethodSignature) MkAbsMethodDecl)
 
   (MethodSignature
     (Type identifier "(" (separated-list identifier ":" Type ",") ")")
     MkMethodSignature)
+
+  (Expression ("self") Self)
 
   (Expression ("new" identifier "(" (separated-list Expression ",") ")") New)
 
@@ -85,8 +89,18 @@
   (Expression ("super-field-get" identifier) SuperFieldGet)
   (Expression ("super-field-set" identifier "=" Expression) SuperFieldSet)
 
+  ; ex 9.10. named static dispatch
+  (Expression
+    ("send-to" identifier
+      Expression identifier "(" (separated-list Expression ",") ")")
+    SendTo)
+
+  ; ex 9.11. ex 9.12. field visibility
+  (Visibility ("public") VPublic)
+  (Visibility ("private") VPrivate)
+  (Visibility ("protected") VProtected)
+
   (Expression ("cast" Expression identifier) Cast)
-  (Expression ("self") Self)
 
   (Type (identifier) TClass)
   (Type ("list" Type) TList)

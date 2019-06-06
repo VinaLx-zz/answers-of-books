@@ -64,7 +64,7 @@
     (New (class-name e-args)
       (define cls (apply-class-env class-name))
       (define obj (new-object-of cls))
-      (call-method obj constructor-name (evals e-args))
+      (call-method (current-host-class env) obj constructor-name (evals e-args))
       (object-val obj)
     )
 
@@ -74,7 +74,7 @@
 
     (Send (e-obj method-name e-args)
       (define obj (expval->object (eval e-obj)))
-      (call-method obj method-name (evals e-args))
+      (call-method (current-host-class env) obj method-name (evals e-args))
     )
 
     ; ex 9.6.
@@ -100,6 +100,13 @@
     )
     (SuperFieldSet (field-name expr)
       (obj-field-set (get-super-obj env) field-name (eval expr))
+    )
+
+    ; ex 9.10.
+    (SendTo (class-name e-obj method-name e-args)
+      (define obj (expval->object (eval e-obj)))
+      (call-target-method
+        (current-host-class env) obj class-name method-name (evals e-args))
     )
 
     (Cast (e-obj class-name) undefined)
@@ -147,9 +154,10 @@
 (define (extend-class-env!/decl decl)
   (cases ClassDecl decl
     (CDeclClass
-      (class-name super-class-name implements field-tps fields method-decls)
+      (class-name super-class-name implements field-decls method-decls)
 
       (define super-class (apply-class-env super-class-name))
+      (define fields (map FieldDecl->field field-decls))
       (define method-env
         (extend-method-env*/decl
           class-name method-decls (class_-method-env super-class)))
@@ -167,34 +175,39 @@
 
 (define (extend-method-env/decl class-name decl env)
   (cases MethodDecl decl
-    (MkMethodDecl (sig body) (cases MethodSignature sig
+    (MkMethodDecl (visibility sig body) (cases MethodSignature sig
     (MkMethodSignature (ret-t method-name params param-tps)
-      (extend-env method-name (method class-name params body) env)
+      (extend-env method-name (method visibility class-name params body) env)
     )))
   )
 )
 
 
 (define self-var '%self)
-(define super-var '%super)
+(define host-var '%host)
 (define constructor-name 'initialize)
 
 (define (get-self-obj env)
-  (expval->object (apply-env env self-var))
+  (define obj (apply-env env self-var false))
+  (if obj (expval->object obj) false)
 )
-(define (get-super-obj env)
-  (expval->object (apply-env env super-var))
+(define (get-host-obj env)
+  (define obj (apply-env env host-var false))
+  (if obj (expval->object obj) false)
 )
+(define get-super-obj (compose object-super-obj get-host-obj))
 
 ; call-method : object -> symbol -> list expval -> result
-(define (call-method self method-name args)
+(define (call-method host-class self method-name args)
   (define mthd (get-method self method-name))
-  (apply-method self mthd args)
+  (apply-method host-class self mthd args)
 )
 
 (define (call-super-method method-name args env)
   (apply-method
-    (get-self-obj env) (get-method (get-super-obj env) method-name) args)
+    (current-host-class env)
+    (get-self-obj env)
+    (get-method (get-super-obj env) method-name) args)
 )
 
 (define/match (new-object-of cls)
@@ -211,12 +224,14 @@
   )
 )
 
-(define (apply-method self mthd args)
+(define (apply-method host-class self mthd args)
   (match-let*
-    (((method cls-name params body) mthd)
-     ((object _ fields-env super-obj) (target-super-object self cls-name)))
+    (((method visibility cls-name params body) mthd)
+     (host-obj (target-super-object self cls-name))
+     ((object _ fields-env _) host-obj))
+    (guard-field-visibility visibility (apply-class-env cls-name) host-class)
     (define proc-env
-      (extend-env super-var (object-val super-obj)
+      (extend-env host-var (object-val host-obj)
         (extend-env self-var (object-val self) fields-env)))
     (apply-procedure (Procedure params body proc-env) args)
   )
@@ -229,4 +244,35 @@
 )
 (define (obj-field-set obj field-name val)
   (setref! (get-field-ref obj field-name) val)
+)
+
+; ex 9.10.
+(define (call-target-method host-class self class-name method-name args)
+  (define host-obj (target-super-object self class-name))
+  (define mthd (get-method host-obj method-name))
+  (apply-method host-class self mthd args)
+)
+
+; ex 9.11.
+(define (guard-field-visibility callee-vis callee-cls caller-cls)
+  (unless (visible? callee-vis callee-cls caller-cls)
+    (error 'Visibility
+      "cannot access field in class ~a with visibility ~v from ~a"
+      (class_-name callee-cls) callee-vis
+      (if caller-cls
+        (format "class ~a" (class_-name caller-cls))
+        "global environment"))
+  )
+)
+
+(define (current-host-class env)
+  (define host-obj (get-host-obj env))
+  (if host-obj (object-class_ host-obj) false)
+)
+
+; ex 9.12.
+(define (FieldDecl->field decl)
+  (cases FieldDecl decl
+    (MkFieldDecl (v tp name) name)
+  )
 )

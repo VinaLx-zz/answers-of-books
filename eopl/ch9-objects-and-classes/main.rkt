@@ -24,38 +24,38 @@
 
 (define dynamic-and-super "
 class c1 extends object
-  method int initialize () 1
-  method int m1 () send self m2()
-  method int m2 () 13
+  method public int initialize () 1
+  method public int m1 () send self m2()
+  method public int m2 () 13
 class c2 extends c1
-  method int m1 () 22
-  method int m2 () 23
-  method int m3 () super m1()
+  method public int m1 () 22
+  method public int m2 () 23
+  method public int m3 () super m1()
 class c3 extends c2
-  method int m1 () 32
-  method int m2 () 33
+  method public int m1 () 32
+  method public int m2 () 33
 let o3 = new c3()
 in  send o3 m3()
 ")
 
 (define inheritance "
 class point extends object
-  field int x
-  field int y
-  method unit initialize (initx : int, inity : int)
+  field private int x
+  field private int y
+  method public unit initialize (initx : int, inity : int)
   begin set x = initx
       ; set y = inity
   end
-  method unit move (dx : int, dy : int)
+  method public unit move (dx : int, dy : int)
   begin set x = +(x,dx)
       ; set y = +(y,dy)
   end
-  method list int get-location () list(x,y)
+  method public list int get-location () list(x,y)
 
 class colorpoint extends point
-  field int color
-  method unit set-color (c : int) set color = c
-  method int get-color () color
+  field private int color
+  method public unit set-color (c : int) set color = c
+  method public int get-color () color
 
 let p  = new point(3,4)
     cp = new colorpoint(10,20)
@@ -70,7 +70,7 @@ end
 ")
 
 (run dynamic-and-super)
-; (run inheritance)
+(run inheritance)
 
 ; ((sllgen:make-rep-loop "oo> " run-program
    ; (sllgen:make-stream-parser eopl:lex-spec oo-syntax)))
