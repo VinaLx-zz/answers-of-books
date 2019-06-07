@@ -3,6 +3,7 @@
 (require "data.rkt")
 (require "interpreter.rkt")
 (require "language.rkt")
+(require "type-checker.rkt")
 (require "../eopl.rkt")
 
 (define (run-program program) 
@@ -11,8 +12,8 @@
   )
   (with-handlers
     ((exn:fail:user? print-user-error))
-    ; (define tp (type-of-program program))
-    ; (printf "Type: ~v\n" tp)
+    (define tp (type-of-program program))
+    (printf "Type: ~v\n" tp)
     (expval->val (value-of-program program))
   )
 )
@@ -65,12 +66,47 @@ begin send p move(3,4)
     ; send cp move(10,20)
     ; list(send p get-location(),
            send cp get-location(),
-           send cp get-color())
+           list(send cp get-color()))
 end
+")
+
+(define tree "
+interface tree
+  method int  sum()
+  method bool equal(t: tree)
+
+class branch extends object implements tree
+  field private tree left
+  field private tree right
+  method public unit initialize(l: tree, r: tree)
+    begin set left = l; set right = r end
+  method public tree getleft () left
+  method public tree getright () right
+  method public int sum() +(send left sum(), send right sum())
+  method public bool equal(t: tree)
+    if instance-of t branch
+    then if send left equal(send cast t branch getleft())
+         then send right equal(send cast t branch getright())
+         else zero?(1)
+    else zero?(1)
+
+class leaf extends object implements tree
+  field private int value
+  method public unit initialize(v: int) set value = v
+  method public int sum() value
+  method public int getvalue() value
+  method public bool equal(t : tree)
+    if instance-of t leaf
+    then zero?(-(value, send cast t leaf getvalue()))
+    else zero?(1)
+
+let t = new branch(new branch(new leaf(3), new leaf(4)), new leaf(5))
+in  list(send t sum(), if send t equal(t) then 1 else 0)
 ")
 
 (run dynamic-and-super)
 (run inheritance)
+(run tree)
 
 ; ((sllgen:make-rep-loop "oo> " run-program
    ; (sllgen:make-stream-parser eopl:lex-spec oo-syntax)))

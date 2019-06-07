@@ -109,7 +109,7 @@
         (current-host-class env) obj class-name method-name (evals e-args))
     )
 
-    (Cast (e-obj class-name) undefined)
+    (Cast (e-obj class-name) (eval e-obj))
   )
 )
 
@@ -161,7 +161,8 @@
       (define method-env
         (extend-method-env*/decl
           class-name method-decls (class_-method-env super-class)))
-      (define cls (class_ class-name super-class fields method-env))
+      (define cls
+        (class_ class-name implements method-env fields super-class))
       (extend-class-env! class-name cls)
     )
     (CDeclInterface (interface-name methods) (void))
@@ -181,11 +182,6 @@
     )))
   )
 )
-
-
-(define self-var '%self)
-(define host-var '%host)
-(define constructor-name 'initialize)
 
 (define (get-self-obj env)
   (define obj (apply-env env self-var false))
@@ -214,7 +210,7 @@
   ((_) #:when (equal? cls object-class)
     (object cls (empty-env) false)
   )
-  (((class_ _ super-class field-names _))
+  (((class_ _ _ _ field-names super-class))
     (define super-obj (new-object-of super-class))
     (define fields-env
       (extend-env*

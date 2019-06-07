@@ -70,7 +70,7 @@
   (empty-env)
   (extend-env
     (var symbol?)
-    (val (p-or reference? expval? Type? method?))
+    (val (p-or reference? expval? Type? method? static-field?))
     (env environment?)
   )
   (extend-env*-rec (proc-infos (list-of ProcInfo?)) (env environment?))
@@ -122,24 +122,39 @@
 
 (define class-env undefined)
 
+(define self-var '%self)
+(define host-var '%host)
+(define constructor-name 'initialize)
+
 (define (initialize-class-env!)
   (set! class-env (make-hash))
   (extend-class-env! 'object object-class)
+)
+(define (initialize-class-tenv!)
+  (set! class-env (make-hash))
+  (extend-class-env! 'object
+    (class_ 'object null (empty-env) (empty-env) false))
 )
 
 (define (extend-class-env! name cls)
   (hash-set! class-env name cls)
 )
 
-(define (apply-class-env name)
-  (hash-ref class-env name)
+(define (apply-class-env name (should-throw true))
+  (define result (hash-ref class-env name false))
+  (if result result
+    (if should-throw
+      (error 'apply-class-env "identifier ~a is not binded in ~a"
+        name class-env)
+      false)
+  )
 )
 
 ; ex 9.4. ex 9.5. some changes of representation of data
 
-(struct class_ (name super-class field-names method-env) #:transparent)
+(struct class_ (name interfaces method-env fields super-class) #:transparent)
 
-(define object-class (class_ 'object false null (empty-env)))
+(define object-class (class_ 'object null (empty-env) null false))
 
 (struct method (visibility host-class-name params body) #:transparent)
 
@@ -194,12 +209,12 @@
   (equal? (class_-name cls1) (class_-name cls2))
 )
 
-(define (subclass? c1 c2)
+(define (<:-class c1 c2)
   (cond
     ((not c1) false)
     ((not c2) true)
     ((equal-class? c1 c2) true)
-    (else (subclass? (class_-super-class c1) c2))
+    (else (<:-class (class_-super-class c1) c2))
   )
 )
 
@@ -207,9 +222,62 @@
   (cond
     ((not caller-cls) (equal? callee-vis (VPublic)))
     ((equal-class? caller-cls callee-cls) true)
-    ((subclass? caller-cls callee-cls)
+    ((<:-class caller-cls callee-cls)
       (v-ge callee-vis (VProtected))
     )
   )
 )
 
+;; typed OO
+
+(struct static-field (name type visibility) #:transparent)
+
+(struct static-method static-field () #:transparent)
+
+(struct interface_ (name method-env) #:transparent)
+
+(define (env-values env)
+  (cases environment env
+    (empty-env () null)
+    (extend-env (var val env1) (cons val (env-values env1)))
+
+    ; extend-env*-rec doesn't appear in type environment
+    (else (error 'env->list "unsupported environment ~v" env))
+  )
+)
+
+(define (implements? c i)
+  (if (not c) false
+    (or
+      (findf
+        (λ (ci)
+          (equal? (interface_-name ci) (interface_-name i)))
+        (class_-interfaces c))
+      ((class_-super-class c) . implements? . i)
+    )
+  )
+)
+
+(define (apply-class-method-tenv cls method-name)
+  (apply-env (class-method-env cls) method-name false)
+)
+
+(define (apply-class-field-tenv cls field-name)
+  (apply-env (class_-fields cls) field-name false)
+)
+
+(define class-like? (p-or class_? interface_?))
+
+(define (class-method-env cls)
+  (if (interface_? cls)
+    (interface_-method-env cls)
+    (class_-method-env cls)
+  )
+)
+
+(define (class-name cls)
+  (if (interface_? cls)
+    (interface_-name cls)
+    (class_-name cls)
+  )
+)

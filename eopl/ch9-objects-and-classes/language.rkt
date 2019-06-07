@@ -32,14 +32,14 @@
 
   (Expression ("nil" "[" Type "]") Nil)
   (Expression
-    ("list" "(" Expression "," (separated-list Expression ",") ")")
+    ("list" "(" Expression (arbno "," Expression) ")")
     List)
 
   (Expression ("begin" (separated-list Expression ";") "end") Begin_)
 
   (Expression ("set" identifier "=" Expression) Set)
 
-  (Type ("(" Type "->" Type ")") TFunc)
+  (Type ("(" (separated-list Type ",") "->" Type ")") TFunc)
   (Type ("int") TInt)
   (Type ("bool") TBool)
   (Type ("unit") TUnit)
