@@ -93,8 +93,8 @@
     )
 
     (Send (e-obj method-name args)
-      (define t-obj (check-class-like (tp-of e-obj) e-obj))
-      (define mthd (check-class-method t-obj method-name expr))
+      (define cls (check-class-like (tp-of e-obj) e-obj))
+      (define mthd (check-class-method cls method-name expr))
       (check-method-call mthd args tenv)
     )
 
@@ -121,28 +121,27 @@
 
     (FieldGet (e-obj field-name)
       (define cls (check-class (tp-of e-obj) e-obj))
-      (define field (check-class-field cls field-name expr))
-      (static-field-type field)
+      (check-access-class-field cls field-name tenv expr)
     )
     (FieldSet (e-obj field-name val)
       (define cls (check-class (tp-of e-obj) e-obj))
-      (define field (check-class-field cls field-name expr))
-      (assert-expr-type val (static-field-type field))
+      (define field-t (check-access-class-field cls field-name tenv expr))
+      (assert-expr-type val field-t)
       (TUnit)
     )
 
     (SuperFieldGet (field-name)
       (define host-class (check-host-class tenv expr))
       (define super-class (check-target-super-class host-class expr))
-      (define field (check-class-field super-class field-name expr))
-      (static-field-type field)
+      (check-access-class-field super-class field-name tenv expr)
     )
 
     (SuperFieldSet (field-name val)
       (define host-class (check-host-class tenv expr))
       (define super-class (check-target-super-class host-class expr))
-      (define field (check-class-field super-class field-name expr))
-      (assert-expr-type val (static-field-type field))
+      (define field-t
+        (check-access-class-field super-class field-name tenv expr))
+      (assert-expr-type val field-t)
       (TUnit)
     )
 
@@ -212,9 +211,9 @@
       (define super-class (apply-class-tenv/class super-name))
       (define interfaces (map apply-class-tenv/interface ifs))
       (define field-env
-        (extend-field-env* field-decls (class_-fields super-class)))
+        (extend-field-env* name field-decls (class_-fields super-class)))
       (define method-env
-        (extend-method-env* method-decls (class_-method-env super-class)))
+        (extend-method-env* name method-decls (class_-method-env super-class)))
       (check-implement-all-interfaces method-env interfaces name)
       (extend-class-env! name
         (class_ name interfaces method-env field-env super-class))
@@ -230,44 +229,49 @@
 
 ; class initialization
 
-(define (extend-field-env* field-decls tenv)
+(define (extend-field-env* class-name field-decls tenv)
+  (define (extend-field-env field-decl tenv)
+    (define field (FieldDecl->static-field class-name field-decl))
+    (extend-env (static-field-name field) field tenv)
+  )
   (foldl extend-field-env tenv field-decls)
 )
-(define (extend-field-env field-decl tenv)
-  (define field (FieldDecl->static-field field-decl))
-  (extend-env (static-field-name field) field tenv)
-)
-(define (FieldDecl->static-field field-decl)
+(define (FieldDecl->static-field class-name field-decl)
   (cases FieldDecl field-decl
-    (MkFieldDecl (v tp name) (static-field name tp v))
+    (MkFieldDecl (v tp name) (static-field name tp v class-name ))
   )
 )
 
-(define (extend-method-env* method-decls method-env)
+(define (extend-method-env* class-name method-decls method-env)
+  (define (extend-method-env method-decl method-env)
+    (define mthd (MethodDecl->static-method class-name method-decl))
+    (extend-env (static-field-name mthd) mthd method-env)
+  )
   (foldl extend-method-env method-env method-decls)
 )
 
-(define (extend-method-env method-decl method-env)
-  (define mthd (MethodDecl->static-method method-decl))
-  (extend-env (static-field-name mthd) mthd method-env)
-)
-
-(define (MethodDecl->static-method method-decl)
+(define (MethodDecl->static-method class-name method-decl)
   (cases MethodDecl method-decl (MkMethodDecl (v signature body)
     (cases MethodSignature signature
       (MkMethodSignature (ret-t name params param-ts)
-        (static-method name (TFunc param-ts ret-t) v)
+        (static-method name (TFunc param-ts ret-t) v class-name)
       )
     )
   ))
 )
 
+(define/match (impl-match-intf-decl? mthd-impl mthd-intf)
+  (((static-method name1 type1 v1 _) (static-method name2 type2 v2 _))
+    (and (equal? name1 name2) (equal? type1 type2) (equal? v1 v2))
+  )
+)
+
 (define (check-implement-all-interfaces method-env interfaces class-name)
   (define (check-implement-interface intf)
     (define/match (check-implement-method mthd)
-      (((static-method name type public_))
+      (((static-method name type public_ host-class))
         (define mthd-impl (apply-env method-env name false))
-        (unless (equal? mthd-impl mthd)
+        (unless (impl-match-intf-decl? mthd-impl mthd)
           (raise-user-error 'Class
             "method ~a of interface ~a is not implemented by class ~a"
             name (interface_-name intf) class-name)
@@ -326,7 +330,7 @@
 (define (MethodSignature->static-method signature)
   (cases MethodSignature signature
     (MkMethodSignature (ret-t name params param-ts)
-      (static-method name (TFunc param-ts ret-t) (VPublic)))
+      (static-method name (TFunc param-ts ret-t) (VPublic) false))
   )
 )
 
@@ -410,8 +414,30 @@
   mthd 
 )
 
+(define (inaccessible-field-error field cls from)
+  (raise-user-error 'Class
+    "method ~a of class ~a is not visible from ~a"
+    (static-field-name field) (class-name cls)
+    (if from (format "class ~a" (class-name from)) "global environment"))
+)
+
+(define (check-field-visible callee-vis callee-cls caller-cls method)
+  (when
+    (and (class_? callee-cls) (not (visible? callee-vis callee-cls caller-cls)))
+    (inaccessible-field-error method callee-cls caller-cls)
+  )
+)
 (define (check-method-call mthd args tenv)
-  (check-call (static-field-type mthd) args tenv (static-field-name mthd))
+  (match mthd
+    ((static-method name type visibility host-class-name)
+      (when host-class-name
+        (define current-cls (current-class tenv))
+        (define host-class (apply-class-env host-class-name))
+        (check-field-visible visibility host-class current-cls mthd)
+      )
+      (check-call type args tenv name)
+    )
+  )
 )
 
 (define (check-super-class cls expr)
@@ -432,6 +458,11 @@
   tp
 )
 
+(define (current-class tenv)
+  (define host-class (apply-env tenv host-var false))
+  (if host-class
+    (apply-class-env (check-class-type host-class null)) host-class)
+)
 (define (check-host-class tenv expr)
   (define host-tp (check-apply-tenv tenv host-var))
   (check-class host-tp expr)
@@ -474,12 +505,17 @@
     (class_-name cls) field-name expr)
 )
 
-(define (check-class-field cls field-name expr)
+(define (check-access-class-field cls field-name tenv expr)
   (define the-field (apply-class-field-tenv cls field-name))
   (unless the-field
     (expect-class-to-have-field cls field-name expr)
   )
-  the-field
+  (match the-field
+    ((static-field _ type v host-class)
+      (check-field-visible v host-class (current-class tenv) the-field)
+      type
+    )
+  )
 )
 
 (define (type-of-program program)
@@ -493,4 +529,4 @@
 )
 
 ; (require racket/trace)
-; (trace check-method-call)
+; (trace check-field-visible)

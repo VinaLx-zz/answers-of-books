@@ -144,7 +144,7 @@
   (define result (hash-ref class-env name false))
   (if result result
     (if should-throw
-      (error 'apply-class-env "identifier ~a is not binded in ~a"
+      (error 'apply-class-env "identifier ~a is not binded in ~v"
         name class-env)
       false)
   )
@@ -230,7 +230,7 @@
 
 ;; typed OO
 
-(struct static-field (name type visibility) #:transparent)
+(struct static-field (name type visibility host-class) #:transparent)
 
 (struct static-method static-field () #:transparent)
 
