@@ -234,7 +234,7 @@
 
 (struct static-method static-field () #:transparent)
 
-(struct interface_ (name method-env) #:transparent)
+(struct interface_ (name method-env super-interfaces) #:transparent)
 
 (define (env-values env)
   (cases environment env
@@ -249,10 +249,7 @@
 (define (implements? c i)
   (if (not c) false
     (or
-      (findf
-        (λ (ci)
-          (equal? (interface_-name ci) (interface_-name i)))
-        (class_-interfaces c))
+      (findf (λ (ci) (<:-interface ci i)) (class_-interfaces c))
       ((class_-super-class c) . implements? . i)
     )
   )
@@ -279,5 +276,13 @@
   (if (interface_? cls)
     (interface_-name cls)
     (class_-name cls)
+  )
+)
+
+(define (<:-interface subi superi)
+  (define (recurse subi1) (<:-interface subi1 superi))
+  (if (equal? (interface_-name subi) (interface_-name superi))
+    true
+    (ormap recurse (interface_-super-interfaces subi))
   )
 )

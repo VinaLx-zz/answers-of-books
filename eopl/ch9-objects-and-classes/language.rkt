@@ -54,8 +54,9 @@
       (arbno MethodDecl))
     CDeclClass)
 
+  ; ex 9.36. interface could extends other interfaces
   (ClassDecl
-    ("interface" identifier (arbno AbsMethodDecl))
+    ("interface" identifier (arbno "extends" identifier) (arbno AbsMethodDecl))
     CDeclInterface)
 
   (FieldDecl ("field" Visibility Type identifier) MkFieldDecl)

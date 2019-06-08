@@ -27,7 +27,7 @@
 
   (cases Expression expr
     (Num (n) (TInt))
-    (Var (v) (apply-env tenv v))
+    (Var (v) (check-apply-tenv tenv v))
     (Diff (lhs rhs)
       (assert-expr-type lhs (TInt))
       (assert-expr-type rhs (TInt))
@@ -95,6 +95,7 @@
     (Send (e-obj method-name args)
       (define cls (check-class-like (tp-of e-obj) e-obj))
       (define mthd (check-class-method cls method-name expr))
+      (check-method-is-not-constructor mthd expr)
       (check-method-call mthd args tenv)
     )
 
@@ -102,9 +103,12 @@
       (define host-class (check-host-class tenv expr))
       (define super-class (check-super-class host-class expr))
       (define mthd (check-class-method super-class method-name expr))
+      (check-method-is-not-constructor mthd expr)
       (check-method-call mthd args tenv)
     )
 
+    ; ex 9.33. ex 9.34.
+    ; safety checking of instance-of and cast
     (InstanceOf (e-obj class-name)
       (define cls1 (check-class-like (tp-of e-obj) expr))
       (define cls2 (check-apply-class-env class-name))
@@ -119,6 +123,7 @@
       (TClass class-name)
     )
 
+    ; ex 9.41. field-get and field-set
     (FieldGet (e-obj field-name)
       (define cls (check-class (tp-of e-obj) e-obj))
       (check-access-class-field cls field-name tenv expr)
@@ -149,6 +154,7 @@
       (define cls (check-class (tp-of e-obj) e-obj))
       (define host-cls (check-target-super-class cls class-name expr))
       (define mthd (check-class-method host-cls method-name expr))
+      (check-method-is-not-constructor mthd expr)
       (check-method-call mthd args tenv)
     )
   )
@@ -208,33 +214,49 @@
 (define (extend-class-tenv!/decl class-decl)
   (cases ClassDecl class-decl
     (CDeclClass (name super-name ifs field-decls method-decls)
+      (check-duplicate-class-name name)
+
       (define super-class (apply-class-tenv/class super-name))
+
       (define interfaces (map apply-class-tenv/interface ifs))
-      (define field-env
-        (extend-field-env* name field-decls (class_-fields super-class)))
       (define method-env
         (extend-method-env* name method-decls (class_-method-env super-class)))
       (check-implement-all-interfaces method-env interfaces name)
+
+      (define super-field-env (class_-fields super-class))
+      (define this-fields (FieldDecl->static-field* name field-decls))
+      (define field-env (extend-field-env* this-fields super-field-env))
+
       (extend-class-env! name
         (class_ name interfaces method-env field-env super-class))
-      (check-method-definitions name method-decls (field-env->tenv field-env))
+
+      (check-method-definitions
+        name method-decls this-fields (env-values super-field-env))
     )
-    (CDeclInterface (name abs-method-decls)
+    (CDeclInterface (name ifs abs-method-decls)
+      (check-duplicate-class-name name)
       (extend-class-env!
-        name (interface_
-          name (extend-tenv*/AbsMethodDecl abs-method-decls (empty-env))))
+        name
+        (interface_
+          name (extend-tenv*/AbsMethodDecl abs-method-decls (empty-env))
+          (map apply-class-tenv/interface ifs)))
     )
   )
 )
 
 ; class initialization
 
-(define (extend-field-env* class-name field-decls tenv)
-  (define (extend-field-env field-decl tenv)
-    (define field (FieldDecl->static-field class-name field-decl))
-    (extend-env (static-field-name field) field tenv)
+(define (check-duplicate-class-name name)
+  (when (apply-class-env name false)
+    (raise-user-error 'Class "Class ~a is already defined" name)
   )
-  (foldl extend-field-env tenv field-decls)
+)
+
+(define (extend-field-env* fields field-env)
+  (extend-env* (map static-field-name fields) fields field-env)
+)
+(define (FieldDecl->static-field* class-name field-decls)
+  (map (λ (decl) (FieldDecl->static-field class-name decl)) field-decls)
 )
 (define (FieldDecl->static-field class-name field-decl)
   (cases FieldDecl field-decl
@@ -279,13 +301,11 @@
       )
     )
     (map check-implement-method (env-values (interface_-method-env intf)))
+    (map check-implement-interface (interface_-super-interfaces intf))
   )
   (map check-implement-interface interfaces)
 )
 
-(define (field-env->tenv field-env)
-  (extend-tenv*/static-field (env-values field-env) (empty-env))
-)
 (define (extend-tenv*/static-field fields tenv)
   (foldl extend-tenv/static-field tenv fields)
 )
@@ -293,6 +313,14 @@
   (extend-env (static-field-name field) (static-field-type field) tenv)
 )
 
+(define (make-method-body-tenv fields super-fields)
+  (define visible-super-fields
+    (filter
+      (λ (field_) (v-ge (static-field-visibility field_) (VProtected))) 
+      super-fields)
+  )
+  (extend-tenv*/static-field (append fields visible-super-fields) (empty-env))
+)
 (define (check-method-definition class-name method-decl tenv)
   (cases MethodDecl method-decl (MkMethodDecl (v signature body)
   (cases MethodSignature signature
@@ -306,7 +334,8 @@
   )))
 )
 
-(define (check-method-definitions class-name method-decls tenv)
+(define (check-method-definitions class-name method-decls fields super-fields)
+  (define tenv (make-method-body-tenv fields super-fields))
   (define (check method-decl)
     (check-method-definition class-name method-decl tenv)
   )
@@ -350,7 +379,7 @@
         (define c1 (apply-class-env name1))
         (define c2 (apply-class-env name2))
         (cond
-          ((interface_? c1) (and (interface_? c2) (equal? name1 name2)))
+          ((interface_? c1) (and (interface_? c2) (<:-interface c1 c2)))
           ((interface_? c2) (c1 . implements? . c2))
           (else (<:-class c1 c2))
         )
@@ -525,6 +554,14 @@
       (extend-class-tenv*!/decls class-decls)
       (type-of expr (empty-env))
     )
+  )
+)
+
+; ex 9.35. ex. 9.39. guard the call of constructor
+(define (check-method-is-not-constructor mthd expr)
+  (when (equal? (static-field-name mthd) constructor-name)
+    (raise-user-error 'Class
+      "Forbidden call to constructor in expression ~v" expr)
   )
 )
 

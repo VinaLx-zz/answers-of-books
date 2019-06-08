@@ -165,7 +165,7 @@
         (class_ class-name implements method-env fields super-class))
       (extend-class-env! class-name cls)
     )
-    (CDeclInterface (interface-name methods) (void))
+    (CDeclInterface (interface-name methods supers) (void))
   )
 )
 
