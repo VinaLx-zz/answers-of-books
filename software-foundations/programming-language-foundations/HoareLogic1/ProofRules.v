@@ -1,5 +1,6 @@
 Require Import LF.Imp.
 Require Import Utf8.
+Require Import PeanoNat. Import Nat.
 
 Definition Assertion := state → Prop.
 
@@ -177,4 +178,68 @@ Proof.
   intros.
   unfold assn_sub. unfold t_update.
   assumption.
+Qed.
+
+Definition bassn b : Assertion :=
+  fun st => (beval st b = true).
+
+Lemma bexp_eval_true : ∀ b st,
+  beval st b = true → (bassn b) st.
+Proof.
+  intros. unfold bassn. simpl. assumption.
+Qed.
+
+Lemma bexp_eval_false : ∀ b st,
+  beval st b = false → ¬ (bassn b) st.
+Proof.
+  intros. unfold bassn. simpl. 
+  rewrite H. easy.
+Qed.
+
+Hint Resolve bexp_eval_true bexp_eval_false.
+
+Theorem hoare_if : ∀ P Q b t f,
+  {{ fun st => P st ∧   bassn b st }} t {{ Q }} →
+  {{ fun st => P st ∧ ¬ bassn b st }} f {{ Q }} →
+  {{ P }} TEST b THEN t ELSE f FI {{ Q }}.
+Proof.
+  unfold hoare_triple.
+  intros P Q b t f Ht Hf st st' H Pst.
+  inversion H; subst.
+  - eapply Ht; eauto.
+  - eapply Hf; eauto.
+Qed.
+
+Require Omega.
+
+Theorem if_minus_plus :
+  {{ fun st => True }}
+    TEST X ≤ Y
+      THEN Z ::= Y - X
+      ELSE Y ::= X + Z
+    FI
+  {{ fun st => st Y = st X + st Z }}.
+Proof.
+  apply hoare_if; unfold bassn; simpl.
+  - eapply hoare_consequence_pre.
+    apply hoare_assign.
+    unfold assn_sub.
+    intros st [_ b]. unfold t_update.
+    simpl. apply leb_le in b. Omega.omega.
+  - eapply hoare_consequence_pre.
+    apply hoare_assign.
+    unfold assn_sub.
+    intros st [_ b]. simpl.
+    unfold t_update. reflexivity.
+Qed.
+
+Theorem hoare_while : ∀ P b c,
+  {{ fun st => P st ∧ bassn b st }} c {{ P }} →
+  {{ P }} WHILE b DO c END {{ fun st => P st ∧ ¬ (bassn b st) }}.
+Proof.
+  unfold hoare_triple. intros P b c HH st st' HE Pst.
+  remember (WHILE b DO c END)%imp as C.
+  induction HE; inversion HeqC; subst; clear HeqC.
+  - auto.
+  - apply IHHE2. trivial. eapply HH; eauto.
 Qed.
