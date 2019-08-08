@@ -31,9 +31,10 @@ Inductive step : tm → tm → Prop :=
 | ST_Plus1 : ∀ t1 t1' t2,
       t1    -->   t1' →
     P t1 t2 --> P t1' t2
-| ST_Plus2 : ∀ n t t',
-            t -->         t' →
-    P (C n) t --> P (C n) t'
+| ST_Plus2 : ∀ v t t',
+    value v →
+        t -->     t' →
+    P v t --> P v t'
 where "t '-->' t'" := (step t t').
 
 (* ex. test_step_2 *)
@@ -42,7 +43,9 @@ Example test_step_2 :
   P (C 0) (P (C 2) (C (0 + 3))).
 Proof.
   apply ST_Plus2.
+  constructor.
   apply ST_Plus2.
+  constructor.
   apply ST_PlusConstConst.
 Qed.
 
