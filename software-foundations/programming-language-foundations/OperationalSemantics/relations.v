@@ -59,3 +59,30 @@ Qed.
 
 Definition normal_form {X : Type} (R : relation X) (t : X) : Prop :=
   ¬ ∃ t', R t t'.
+
+Lemma value_is_nf :
+  ∀ v, value v → normal_form step v.
+Proof.
+  intros v V.
+  inversion V.
+  intros [t S].
+  inversion S.
+Qed.
+
+Lemma nf_is_value :
+  ∀ v, normal_form step v → value v.
+Proof.
+  unfold normal_form.
+  intros t H.
+  assert (value t ∨ ∃ t', t --> t') by apply strong_progress.
+  destruct H0.
+  - assumption.
+  - contradiction.
+Qed.
+
+Corollary nf_same_as_value :
+  ∀ t, normal_form step t ↔ value t.
+Proof.
+  intros t.
+  split; solve [apply value_is_nf | apply nf_is_value].
+Qed.
