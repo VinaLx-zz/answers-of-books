@@ -103,3 +103,89 @@ Proof.
     constructor. constructor.
     apply nf_same_as_value. constructor.
 Qed.
+
+Theorem eval__multistep :
+  ∀ t n, t ==> n → t -->* C n.
+Proof.
+  intros t n H.
+  induction H.
+  - constructor.
+  - apply multi_trans with (P (C n1) t2).
+      apply multistep_congr_1. assumption.
+    apply multi_trans with (P (C n1) (C n2)).
+      apply multistep_congr_2. constructor. assumption.
+    apply multi_step with (C (n1 + n2)).
+      apply ST_PlusConstConst.
+      apply multi_refl.
+Qed.
+
+Lemma step__eval :
+  ∀ t t' n, t --> t' → t' ==> n → t ==> n.
+Proof.
+  intros t t' n step_t_t' eval_t'_n.
+  generalize dependent t.
+  induction eval_t'_n; intros t step_t_t'.
+  - inversion step_t_t'.
+    apply E_Plus; constructor.
+  - inversion step_t_t'; subst.
+    + apply IHeval_t'_n1 in H1.
+      now apply E_Plus.
+    + apply IHeval_t'_n2 in H3.
+      now apply E_Plus.
+Qed.
+
+Theorem multistep__eval : ∀ t t',
+  normal_form_of t t' → ∃ n, t' = C n ∧ t ==> n.
+Proof.
+  unfold normal_form_of, step_normal_form.
+  intros t t' [MStt' NFt'].
+  apply nf_same_as_value in NFt'. 
+  induction MStt'.
+  - inversion NFt'.
+    exists n. split. trivial.
+    constructor.
+  - assert (∃ n', z = C n' ∧ y ==> n') as [n' [equal_z_Cn eval_y_n']]
+      by now apply IHMStt'.
+    exists n'. split. assumption.
+    now apply step__eval with y.
+Qed.
+
+Lemma evalF_terminate : ∀ t, ∃ n, evalF t = n.
+Proof.
+  induction t.
+  - exists n. reflexivity.
+  - destruct IHt1 as [n1 E1].
+    destruct IHt2 as [n2 E2].
+    exists (n1 + n2).
+    simpl.
+    auto.
+Qed.
+
+Lemma evalF__eval : ∀ t n, evalF t = n → t ==> n.
+Proof.
+  intros t n E. generalize dependent n.
+  induction t; intros; simpl in E.
+  - rewrite E. apply E_Const.
+  - assert (∃ n1, evalF t1 = n1) as [n1 E1]
+      by apply evalF_terminate.
+    assert (∃ n2, evalF t2 = n2) as [n2 E2]
+      by apply evalF_terminate.
+    rewrite E1, E2 in E. rewrite <- E.
+    apply E_Plus.
+    + now apply IHt1.
+    + now apply IHt2.
+Qed.
+
+Lemma eval__evalF : ∀ t n, t ==> n → evalF t = n.
+Proof.
+  intros t n E.
+  induction E.
+  - reflexivity.
+  - simpl. rewrite IHE1, IHE2. reflexivity.
+Qed.
+
+Theorem evalF_eval : ∀ t n, evalF t = n ↔ t ==> n.
+Proof.
+  intros.
+  split. apply evalF__eval. apply eval__evalF.
+Qed.
